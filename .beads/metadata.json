@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "CORUNDUM",
+  "project_id": "371959fd-23e8-416c-ac11-78e27f173669"
+}
