@@ -22,6 +22,7 @@ This API is the interface between social media client applications and the Corun
 | `10-identity-migration.md` | Identity and migration: DID, keys, key rotation, RootManifest, archive export, operator migration (cooperative and hostile). |
 | `11-curation.md` | Curation: subscribed curator feeds, per-content label lookup, appeal flow, admin policy management. |
 | `12-alternative-shapes.md` | Alternative API shapes: E2E signing, GraphQL, Nostr-style relay, local-first/IPFS-direct, CQRS, AT Protocol XRPC, and how to combine them. |
+| `13-mastodon-shim.md` | Mastodon compatibility shim: ID mapping design, key holding, state requirements, endpoint translation, streaming, and limitations. |
 
 ## Mastodon Compatibility
 
