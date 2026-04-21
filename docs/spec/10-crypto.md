@@ -111,12 +111,444 @@ This prevents the downgrade attack: if Operator B's manifest says it has an acti
 
 Post-quantum adoption is gradual and per-sender. An operator starts requiring post-quantum signatures from a peer when that peer declares an active post-quantum key in their manifest. There is no protocol-wide flag day. The ecosystem migrates gradually as operators add post-quantum keys to their manifests. This is better than a flag-day approach in two ways: operators can migrate on their own schedule, and the mandatory-signature mechanism means there is no window where post-quantum signatures are declared but not enforced.
 
-The **Algorithm Sunset Registry** tracks the lifecycle:
+The **Algorithm Sunset Registry** (Chapter 36) tracks the lifecycle of every algorithm identifier:
 
-- **REQUIRED**: Ed25519 (signatures), SHA-256 (hashes). Must be supported.
-- **OPTIONAL**: ECDSA P-256, secp256k1, Dilithium, SPHINCS+, FALCON. Supported but not required.
-- **SUNSET**: Deprecated with a timeline; implementations SHOULD warn on use; implementations MUST reject after sunset date.
-- **PROHIBITED**: Reject immediately. Currently: MD5, MD4, SHA-1, RSA-1024, DSA.
+- **REQUIRED**: Must be supported. Currently: `ed25519-v1` (signatures), `sha2-256-v1` (hashes).
+- **OPTIONAL**: Supported but not required. Currently: ECDSA P-256, secp256k1, Dilithium, SPHINCS+, FALCON, SHA-512, SHA3-256, BLAKE2b-256.
+- **SUNSET**: Deprecated with a warning date and sunset date. Implementations SHOULD warn on use before the sunset date; implementations MUST reject after the sunset date. Currently: `sha1-v1`, `rsa-1024-v1`, `dsa-2048-v1`.
+- **PROHIBITED**: No transition period; reject immediately. Currently: `md5-v1`, `md4-v1`.
+
+See Chapter 36 for the complete registry, active sunset declarations, sunset declaration JSON schema, and the sunset process.
+
+---
+
+### Chapter 36: Algorithm Sunset Registry
+
+**Status:** Living Document
+**Registry Version:** 1.1
+**Last Updated:** 2026-02-02
+**Maintainer:** Corundum Working Group
+
+---
+
+#### Registered Algorithms
+
+##### Signature Algorithms: Currently Required
+
+| Identifier | Algorithm | Specification | Status |
+|------------|-----------|---------------|--------|
+| `ed25519-v1` | EdDSA over Curve25519 | RFC 8032 | REQUIRED |
+
+##### Signature Algorithms: Currently Optional (Pre-Quantum)
+
+| Identifier | Algorithm | Specification | Status |
+|------------|-----------|---------------|--------|
+| `ecdsa-p256-v1` | ECDSA over secp256r1 | RFC 6979 | OPTIONAL |
+| `ecdsa-secp256k1-v1` | ECDSA over secp256k1 | RFC 6979 | OPTIONAL |
+
+##### Signature Algorithms: Currently Optional (Post-Quantum)
+
+| Identifier | Algorithm | Specification | Status |
+|------------|-----------|---------------|--------|
+| `dilithium3-v1` | CRYSTALS-Dilithium Level 3 | FIPS 204 | OPTIONAL |
+| `dilithium5-v1` | CRYSTALS-Dilithium Level 5 | FIPS 204 | OPTIONAL |
+| `sphincs-sha2-256f-v1` | SPHINCS+ SHA2-256f | FIPS 205 | OPTIONAL |
+| `falcon512-v1` | FALCON-512 | FIPS 206 | OPTIONAL |
+
+##### Signature Algorithms: Sunset
+
+| Identifier | Algorithm | Specification | Status | Warning Date | Sunset Date |
+|------------|-----------|---------------|--------|--------------|-------------|
+| `rsa-1024-v1` | RSA-1024 | RFC 8017 | SUNSET | 2025-02-04 | 2026-02-04 |
+| `dsa-2048-v1` | DSA-2048 | FIPS 186-4 | SUNSET | 2025-02-04 | 2026-08-04 |
+
+##### Hash Algorithms: Currently Required
+
+| Identifier | Algorithm | Specification | Status |
+|------------|-----------|---------------|--------|
+| `sha2-256-v1` | SHA-256 | FIPS 180-4 | REQUIRED |
+
+##### Hash Algorithms: Currently Optional
+
+| Identifier | Algorithm | Specification | Status |
+|------------|-----------|---------------|--------|
+| `sha2-512-v1` | SHA-512 | FIPS 180-4 | OPTIONAL |
+| `sha3-256-v1` | SHA3-256 | FIPS 202 | OPTIONAL |
+| `blake2b-256-v1` | BLAKE2b-256 | RFC 7693 | OPTIONAL |
+
+##### Hash Algorithms: Sunset
+
+| Identifier | Algorithm | Specification | Status | Warning Date | Sunset Date |
+|------------|-----------|---------------|--------|--------------|-------------|
+| `sha1-v1` | SHA-1 | FIPS 180-4 | SUNSET | 2025-02-04 | 2026-08-04 |
+
+##### Hash Algorithms: Prohibited
+
+| Identifier | Algorithm | Specification | Status | Effective Date |
+|------------|-----------|---------------|--------|----------------|
+| `md5-v1` | MD5 | RFC 1321 | PROHIBITED | 2025-02-04 |
+| `md4-v1` | MD4 | RFC 1320 | PROHIBITED | 2025-02-04 |
+
+Algorithms with PROHIBITED status MUST be rejected immediately by conforming implementations. No transition period applies. These algorithms have known practical attacks that produce collisions trivially; accepting them in any context represents an immediate security failure.
+
+---
+
+#### Active Sunset Declarations
+
+##### SHA-1 (`sha1-v1`)
+
+**Declared:** 2025-02-04
+**Warning Date:** 2025-02-04 (immediate)
+**Sunset Date:** 2026-08-04
+**Reason:** `cryptanalysis-weakness`
+**Replacement Algorithms:** `sha2-256-v1`, `sha2-512-v1`, `sha3-256-v1`
+
+SHA-1 collision resistance was practically broken by the SHAttered attack (2017) and further weakened by chosen-prefix collision attacks (2020). SHA-1 MUST NOT be used for new content after the sunset date. Existing SHA-1 references (e.g., content-addressed identifiers) MUST be migrated to a replacement algorithm before the sunset date.
+
+The standard 36-month minimum transition period is waived under the expedited sunset procedure. SHA-1 collision resistance has been publicly broken since 2017; the 18-month transition period reflects operational migration needs only.
+
+```json
+{
+  "@type": "corundum:AlgorithmSunset",
+  "algorithm": "sha1-v1",
+  "sunsetDate": "2026-08-04",
+  "warningDate": "2025-02-04",
+  "reason": "cryptanalysis-weakness",
+  "replacementAlgorithms": [
+    "sha2-256-v1",
+    "sha2-512-v1",
+    "sha3-256-v1"
+  ],
+  "declaredBy": "corundum-working-group",
+  "declaredAt": "2025-02-04T00:00:00Z",
+  "transitionGuidance": {
+    "minimumOverlapMonths": 18,
+    "resignatureDeadline": "2026-06-04"
+  },
+  "signatureAlgorithm": "ed25519-v1",
+  "signature": "..."
+}
+```
+
+##### RSA-1024 (`rsa-1024-v1`)
+
+**Declared:** 2025-02-04
+**Warning Date:** 2025-02-04 (immediate)
+**Sunset Date:** 2026-02-04
+**Reason:** `key-size-insufficient`
+**Replacement Algorithms:** `ed25519-v1`, `ecdsa-p256-v1`, `dilithium3-v1`
+
+RSA with 1024-bit keys is factorable with current academic and state-level resources. NIST deprecated RSA-1024 in 2013. Conforming implementations MUST warn immediately on RSA-1024 signatures and MUST reject them after the sunset date.
+
+The standard 36-month minimum transition period is waived under the expedited sunset procedure. RSA-1024 has been considered insecure since at least 2013.
+
+```json
+{
+  "@type": "corundum:AlgorithmSunset",
+  "algorithm": "rsa-1024-v1",
+  "sunsetDate": "2026-02-04",
+  "warningDate": "2025-02-04",
+  "reason": "key-size-insufficient",
+  "replacementAlgorithms": [
+    "ed25519-v1",
+    "ecdsa-p256-v1",
+    "dilithium3-v1"
+  ],
+  "declaredBy": "corundum-working-group",
+  "declaredAt": "2025-02-04T00:00:00Z",
+  "transitionGuidance": {
+    "minimumOverlapMonths": 12,
+    "resignatureDeadline": "2026-01-04"
+  },
+  "signatureAlgorithm": "ed25519-v1",
+  "signature": "..."
+}
+```
+
+##### DSA (`dsa-2048-v1`)
+
+**Declared:** 2025-02-04
+**Warning Date:** 2025-02-04 (immediate)
+**Sunset Date:** 2026-08-04
+**Reason:** `standards-deprecated`
+**Replacement Algorithms:** `ed25519-v1`, `ecdsa-p256-v1`, `dilithium3-v1`
+
+DSA was formally deprecated by NIST in FIPS 186-5 (2023). DSA signatures are no longer permitted for generating digital signatures per NIST guidance. Existing DSA-signed content MUST be resignatured with a replacement algorithm before the sunset date.
+
+The standard 36-month minimum transition period is waived under the expedited sunset procedure. NIST formally deprecated DSA in 2023.
+
+```json
+{
+  "@type": "corundum:AlgorithmSunset",
+  "algorithm": "dsa-2048-v1",
+  "sunsetDate": "2026-08-04",
+  "warningDate": "2025-02-04",
+  "reason": "standards-deprecated",
+  "replacementAlgorithms": [
+    "ed25519-v1",
+    "ecdsa-p256-v1",
+    "dilithium3-v1"
+  ],
+  "declaredBy": "corundum-working-group",
+  "declaredAt": "2025-02-04T00:00:00Z",
+  "transitionGuidance": {
+    "minimumOverlapMonths": 18,
+    "resignatureDeadline": "2026-06-04"
+  },
+  "signatureAlgorithm": "ed25519-v1",
+  "signature": "..."
+}
+```
+
+---
+
+#### Historical Prohibitions
+
+##### MD5 (`md5-v1`)
+
+**Effective:** 2025-02-04
+**Status:** PROHIBITED
+**Reason:** `cryptanalysis-weakness`
+
+MD5 collision resistance was broken by Wang and Yu (2004). Practical collision attacks now run in seconds on commodity hardware. The Flame malware (2012) demonstrated real-world exploitation of MD5 collisions against code signing infrastructure. MD5 was never accepted in the Corundum protocol; this declaration formalizes its prohibition.
+
+##### MD4 (`md4-v1`)
+
+**Effective:** 2025-02-04
+**Status:** PROHIBITED
+**Reason:** `cryptanalysis-weakness`
+
+MD4 has been catastrophically broken since Dobbertin (1995). Full collisions can be generated in microseconds. MD4 was never accepted in the Corundum protocol; this declaration formalizes its prohibition.
+
+---
+
+#### Future Considerations
+
+##### Ed25519 (`ed25519-v1`)
+
+**Current Status:** REQUIRED, no sunset scheduled.
+
+Ed25519 is vulnerable to quantum computers running Shor's algorithm. Current estimates suggest 2030–2040 for cryptographically relevant quantum computers. Projected timeline:
+
+- **2026–2028:** Begin requiring dual signatures (classical + post-quantum)
+- **2029–2031:** Warning period for Ed25519-only content
+- **2032–2035:** Potential sunset (dependent on quantum computing progress)
+
+Migration path: add post-quantum keys to operator manifests → sign new content with both algorithms → resignature historical content → eventually reject Ed25519-only content.
+
+##### ECDSA variants (`ecdsa-p256-v1`, `ecdsa-secp256k1-v1`)
+
+**Current Status:** OPTIONAL, no sunset scheduled. Same quantum vulnerability as Ed25519. May be sunset concurrently with Ed25519.
+
+##### RIPEMD-160
+
+**Current Status:** Not registered. 160-bit output provides only 80-bit collision resistance; theoretical attacks have reduced effective security below design parameters. If registered in the future, would likely enter at SUNSET or PROHIBITED status. Implementations SHOULD NOT introduce new dependencies on RIPEMD-160.
+
+---
+
+#### Algorithm Identifier Format
+
+Algorithm identifiers follow the pattern `{algorithm-family}-{variant}-v{version}`:
+
+| Component | Description | Constraints |
+|-----------|-------------|-------------|
+| `algorithm-family` | Base algorithm name | Lowercase alphanumeric |
+| `variant` | Specific instantiation | Lowercase alphanumeric, optional |
+| `version` | Identifier version | Integer, starts at 1 |
+
+The version number indicates the identifier format version, not the algorithm version. A new version is created when the signing or verification procedure changes. Algorithm parameters (curve, hash function) are fixed within a version.
+
+Valid: `ed25519-v1`, `dilithium3-v1`, `sphincs-sha2-256f-v1`, `ecdsa-p256-v1`, `sha2-256-v1`
+
+Invalid: `Ed25519-v1` (uppercase), `ed25519` (missing version), `ed25519_v1` (underscore not allowed)
+
+---
+
+#### Algorithm Strength Ordering
+
+When multiple acceptable signatures exist, prefer stronger algorithms.
+
+**Recommended signature preference order (2025):**
+
+1. `dilithium5-v1` (highest post-quantum security)
+2. `dilithium3-v1` (good post-quantum security, smaller signatures)
+3. `sphincs-sha2-256f-v1` (conservative post-quantum, hash-based)
+4. `falcon512-v1` (efficient post-quantum)
+5. `ed25519-v1` (current standard, pre-quantum)
+6. `ecdsa-p256-v1` (legacy compatibility)
+7. `ecdsa-secp256k1-v1` (blockchain compatibility)
+
+**Recommended hash preference order (2025):**
+
+1. `sha3-256-v1` (independent design from SHA-2 family)
+2. `sha2-512-v1` (larger state, higher security margin)
+3. `sha2-256-v1` (current standard, widely deployed)
+4. `blake2b-256-v1` (high performance, strong security margin)
+
+Algorithms with SUNSET or PROHIBITED status MUST NOT appear in preference ordering. Implementations MUST NOT select a sunset or prohibited algorithm when an acceptable alternative is available.
+
+---
+
+#### Sunset Declaration Process
+
+**Phase 1 — Proposal:** Working group identifies algorithm weakness or better alternative. Draft sunset declaration created with proposed timeline. Minimum 36-month total transition period required.
+
+**Phase 2 — Public Comment:** Draft published for public comment (minimum 90 days). Feedback collected from operators and implementers. Timeline adjusted based on feedback.
+
+**Phase 3 — Final Declaration:** Final declaration published with firm warning date and sunset date, and replacement algorithms listed.
+
+**Phase 4 — Implementation:** Operators update manifests with sunset information. Implementers add warnings for deprecated algorithms. Migration tools provided for resignature.
+
+**Phase 5 — Enforcement:** During the warning period, verifiers warn on use of the deprecated algorithm. After the sunset date, verifiers reject the deprecated algorithm.
+
+**Expedited sunset procedure:** The standard 36-month minimum transition period MAY be waived when ALL of the following are met:
+
+1. The algorithm has a publicly demonstrated practical attack (not merely theoretical)
+2. The attack has been known for at least 24 months prior to the sunset declaration
+3. A recognized standards body (NIST, IETF, or equivalent) has deprecated or disrecommended the algorithm
+4. Replacement algorithms are already registered and available in the protocol
+
+Algorithms meeting these criteria may be declared SUNSET with a reduced transition period (minimum 12 months) or PROHIBITED with immediate effect. The expedited rationale MUST be documented in the sunset declaration.
+
+**Recommended migration timeline (standard procedure):**
+
+| Phase | Duration | Activities |
+|-------|----------|------------|
+| Announcement | 12 months | Publish sunset, update docs |
+| Key Generation | 12 months | Users add replacement keys |
+| Dual Signing | 12 months | Sign with both algorithms |
+| Warning | 12 months | Warn on deprecated-only content |
+| Resignature | 12 months | Automated resignature campaigns |
+| Soft Enforcement | 6 months | Deprioritize deprecated content |
+| Hard Enforcement | Ongoing | Reject deprecated signatures |
+
+**Minimum total:** 36 months from announcement to sunset. PROHIBITED algorithms require no migration timeline; implementations MUST reject them immediately.
+
+---
+
+#### Sunset Declaration Format
+
+```json
+{
+  "@type": "corundum:AlgorithmSunset",
+  "algorithm": "ed25519-v1",
+  "sunsetDate": "2032-01-01",
+  "warningDate": "2029-01-01",
+  "reason": "quantum-computing-threat",
+  "replacementAlgorithms": [
+    "dilithium3-v1",
+    "dilithium5-v1",
+    "sphincs-sha2-256f-v1"
+  ],
+  "declaredBy": "corundum-working-group",
+  "declaredAt": "2028-01-01T00:00:00Z",
+  "transitionGuidance": {
+    "minimumOverlapMonths": 36,
+    "resignatureDeadline": "2031-06-01"
+  },
+  "signatureAlgorithm": "ed25519-v1",
+  "signature": "..."
+}
+```
+
+**Fields:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `@type` | string | REQUIRED | MUST be `"corundum:AlgorithmSunset"` |
+| `algorithm` | string | REQUIRED | Algorithm identifier being sunset |
+| `sunsetDate` | date | REQUIRED | Date after which algorithm is untrusted |
+| `warningDate` | date | RECOMMENDED | Date to begin warnings |
+| `reason` | string | REQUIRED | Reason code (see below) |
+| `replacementAlgorithms` | array | REQUIRED | Acceptable replacement algorithm identifiers |
+| `declaredBy` | string | REQUIRED | Entity declaring sunset |
+| `declaredAt` | datetime | REQUIRED | Declaration timestamp (RFC 3339; millisecond precision RECOMMENDED) |
+| `transitionGuidance` | object | RECOMMENDED | Migration guidance |
+| `signatureAlgorithm` | string | REQUIRED | Algorithm used to sign this declaration |
+| `signature` | string | REQUIRED | Signature over this declaration |
+
+`declaredAt` supports sub-second precision per RFC 3339. Trailing zeros in fractional seconds are removed before signing per canonical serialization rules (Chapter 33).
+
+**Reason codes:**
+
+| Code | Description |
+|------|-------------|
+| `quantum-computing-threat` | Vulnerable to quantum attacks |
+| `cryptanalysis-weakness` | Classical cryptanalysis has weakened algorithm |
+| `implementation-flaw` | Implementation defects discovered |
+| `key-size-insufficient` | Key size no longer meets security requirements |
+| `protocol-upgrade` | Protocol changes require new algorithm |
+| `standards-deprecated` | Algorithm deprecated by a recognized standards body (NIST, IETF, or equivalent) |
+
+---
+
+#### Sunset Declaration JSON Schema (Normative)
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AlgorithmSunsetDeclaration",
+  "type": "object",
+  "required": ["@type", "algorithm", "sunsetDate", "reason", "replacementAlgorithms", "declaredBy", "declaredAt", "signatureAlgorithm", "signature"],
+  "properties": {
+    "@type": {
+      "type": "string",
+      "const": "corundum:AlgorithmSunset"
+    },
+    "algorithm": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+-([a-z0-9]+-)?v[0-9]+$"
+    },
+    "sunsetDate": {
+      "type": "string",
+      "format": "date"
+    },
+    "warningDate": {
+      "type": "string",
+      "format": "date"
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "quantum-computing-threat",
+        "cryptanalysis-weakness",
+        "implementation-flaw",
+        "key-size-insufficient",
+        "protocol-upgrade",
+        "standards-deprecated"
+      ]
+    },
+    "replacementAlgorithms": {
+      "type": "array",
+      "items": {"type": "string"},
+      "minItems": 1
+    },
+    "declaredBy": {
+      "type": "string"
+    },
+    "declaredAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?Z$"
+    },
+    "transitionGuidance": {
+      "type": "object",
+      "properties": {
+        "minimumOverlapMonths": {"type": "integer", "minimum": 0},
+        "resignatureDeadline": {"type": "string", "format": "date"},
+        "documentationUrl": {"type": "string", "format": "uri"}
+      }
+    },
+    "signatureAlgorithm": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+-([a-z0-9]+-)?v[0-9]+$"
+    },
+    "signature": {
+      "type": "string"
+    }
+  }
+}
+```
 
 ---
 
