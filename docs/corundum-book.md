@@ -23,6 +23,7 @@ All content lives in [`docs/spec/`](spec/).
 | [13-content-retention.md](spec/13-content-retention.md) | Part XIII — Content Retention Conflicts (Ch 39) |
 | [14-out-of-scope.md](spec/14-out-of-scope.md) | Part XIV — What Corundum Doesn't Define (Ch 40) |
 | [15-implementation-guide.md](spec/15-implementation-guide.md) | Part XV — Implementation Guidance (Ch 41–46) |
+| [16-interop-streams.md](spec/16-interop-streams.md) | Part XVI — Inter-Operator Event Streams (Ch 47–52) |
 | [appendices.md](spec/appendices.md) | Appendix A (Spec Index) and Appendix B (Normative References) |
 
 ## Quick Reference for Implementers

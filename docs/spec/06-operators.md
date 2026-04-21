@@ -102,6 +102,54 @@ The manifest is the single fetch that gives any other operator everything it nee
 
 HTTPS is required (not optional) for the operator manifest endpoint for exactly this reason: without TLS, there is no initial trust anchor for the self-signature. The self-signature is then used for subsequent requests (it's faster than a full TLS handshake for each request), but the initial manifest fetch must be over HTTPS.
 
+### Normative Manifest Specification
+
+**Response requirements.** The manifest MUST be served with `Content-Type: application/json`. The response SHOULD include `Cache-Control: max-age=3600`; operators MAY reduce this during key rotations requiring faster propagation, and MUST NOT set it lower than 60 seconds. Operators MUST serve the manifest over HTTPS.
+
+**Field requirements.**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `@type` | string | REQUIRED | MUST be `"corundum:OperatorManifest"` |
+| `id` | string | REQUIRED | HTTPS base URL of this operator. MUST match the origin of the URL from which the manifest was fetched. |
+| `protocolVersion` | string | REQUIRED | Currently `"1.0"`. Receivers MUST reject manifests with unrecognized protocol versions. |
+| `published` | string | REQUIRED | ISO 8601 datetime (UTC, `Z` suffix). When this manifest was first published. |
+| `lastUpdated` | string | REQUIRED | ISO 8601 datetime (UTC, `Z` suffix). When this manifest was last modified. |
+| `keys` | array | REQUIRED | At least one entry. At least one key MUST have `status: "active"`. |
+| `auth` | object | REQUIRED | Authentication requirements for inbound inter-operator requests. |
+| `auth.required` | array | REQUIRED | Algorithm identifiers this operator accepts. At least one entry. |
+| `auth.clockSkewTolerance` | integer | REQUIRED | Maximum allowed difference in seconds between the `corundum-timestamp` header value and the receiver's current time. RECOMMENDED value: 300. |
+| `auth.requiredComponents` | array | REQUIRED | RFC 9421 component names that MUST appear in the `Signature-Input` of all inbound requests with a body. |
+| `capabilities` | object | OPTIONAL | If absent, all capabilities are treated as false/unsupported. |
+| `info` | object | OPTIONAL | Human-readable operator information. All subfields are OPTIONAL. |
+| `signature` | object | REQUIRED | Self-signature over the manifest body with the `signature` field omitted, using canonical JSON. |
+
+**Key object fields:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | REQUIRED | URL uniquely identifying this key. Convention: `{operator_id}#key-{name}`. |
+| `algorithm` | string | REQUIRED | Algorithm identifier. Currently defined: `"ed25519-v1"`. |
+| `publicKey` | string | REQUIRED | Public key bytes, multibase-encoded (base58btc, prefix `z`). |
+| `status` | string | REQUIRED | One of `"active"`, `"deprecated"`, `"revoked"`. `active` keys are used for new signatures. `deprecated` keys are accepted for verification but MUST NOT be used for new signatures. `revoked` keys MUST NOT be accepted for any signature verification. |
+| `activatedAt` | string | REQUIRED | ISO 8601 datetime when this key was first activated. |
+| `deprecatedAt` | string | CONDITIONAL | ISO 8601 datetime. MUST be present if `status` is `"deprecated"`. |
+| `revokedAt` | string | CONDITIONAL | ISO 8601 datetime. MUST be present if `status` is `"revoked"`. |
+
+**Capabilities semantics.**
+
+| Capability | Type | Meaning when true |
+|------------|------|-------------------|
+| `replies` | boolean | Operator exposes `POST /corundum/v1/replies/submit`. |
+| `curation` | boolean | Operator subscribes to and enforces external curation feeds. Informational; does not alter the reply protocol. |
+| `batchSubmission` | boolean | Operator exposes `POST /corundum/v1/replies/batch`. Only meaningful when `replies` is also true. |
+| `didIdentity` | boolean | Operator supports DID-based identity verification for incoming submissions. |
+| `migration` | boolean | Operator exposes `POST /corundum/v1/migration/notify`. |
+| `postQuantum` | boolean | Operator supports post-quantum signature algorithms (post-MVP). |
+| `handleResolution` | array | Handle resolution methods supported. Values: `"dns"`, `"did"`. |
+
+An operator that receives a request for an endpoint its capabilities declare as unsupported MUST return `404 Not Found`.
+
 ### Chapter 19: Inter-Operator Authentication
 
 Operators authenticate to each other using HTTP Message Signatures (RFC 9421). This standard, published in 2024, defines a mechanism for signing HTTP requests and responses in a way that is independent of the transport layer and resistant to replay attacks.
@@ -195,6 +243,37 @@ The authentication flow:
 
 Trust levels allow operators to make graduated policy decisions rather than binary allow/deny. An operator might allow anyone to query content but only accept reply submissions from authenticated-known operators.
 
+### Normative Authentication Specification
+
+**The `Corundum-Timestamp` header.** This is a standard HTTP request header. Its value is a decimal integer representing the current Unix epoch time in seconds (UTC), with no fractional part and no leading zeros:
+
+```
+Corundum-Timestamp: 1742044931
+```
+
+The header name is `Corundum-Timestamp` in HTTP wire format. Its RFC 9421 component identifier in signature base strings is `"corundum-timestamp"` (lowercase, per RFC 9421 §2.1 normalization).
+
+**Required components by request type.** The set of required signature components depends on whether the request has a body:
+
+| Request type | Required components |
+|---|---|
+| POST with body | `"@method"`, `"@target-uri"`, `"@authority"`, `"content-digest"`, `"corundum-timestamp"` |
+| GET or HEAD (no body) | `"@method"`, `"@target-uri"`, `"@authority"`, `"corundum-timestamp"` |
+
+Requests with a body MUST include a `Content-Digest` header per RFC 9421 §2.4, using SHA-256:
+
+```
+Content-Digest: sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:
+```
+
+**Downgrade attack prevention.** When submitting any inter-operator request, an operator MUST sign with ALL algorithms listed in its own manifest's `auth.required` array. If the sending operator's manifest declares `"auth": { "required": ["ed25519-v1", "ed25519-pq-v1"] }`, the request MUST carry two separate `Signature` and `Signature-Input` header entries (e.g., labels `sig-ed25519` and `sig-pq`), one per declared algorithm.
+
+The receiving operator MUST verify that the incoming request carries at least one valid signature for every algorithm the sending operator's manifest declares as required. A request signed with only a subset of the sender's declared algorithms MUST be rejected with `401 Unauthorized` and reason code `insufficient-signature-coverage`. This prevents an attacker from stripping a stronger signature and forwarding a request signed only with a weaker algorithm.
+
+**Manifest cache and re-fetch.** Operators SHOULD cache remote manifests for the duration given by the `Cache-Control` header on the manifest response. If no `Cache-Control` is present, operators SHOULD cache for 3600 seconds. Operators MUST NOT cache any manifest for longer than 86400 seconds regardless of `Cache-Control`.
+
+If signature verification fails against a cached manifest (key not found, or key is revoked), the receiving operator MUST re-fetch the sender's manifest before issuing a final rejection. This handles the case where the remote operator rotated its key since the last cache refresh. If verification still fails after the re-fetch, the request MUST be rejected.
+
 ### Chapter 20: Operator Discovery
 
 Operators are discovered through multiple mechanisms, forming a redundant discovery system with no single point of failure.
@@ -214,6 +293,23 @@ The full discovery flow when Operator A needs to reach Operator B for the first 
 3. Fetch Operator B's manifest from `{endpoint}/.well-known/corundum-operator` over HTTPS.
 4. Verify the manifest's self-signature using the key declared in the manifest.
 5. Cache the manifest for future requests (TTL from the `Cache-Control` header, typically 1 hour).
+
+### Normative Inter-Operator Endpoint Table
+
+The following endpoints constitute the complete Corundum inter-operator protocol. All paths are relative to the operator's `id` base URL. All endpoints MUST be served over HTTPS.
+
+| Method | Path | Capability gate | Auth required | Status |
+|--------|------|-----------------|---------------|--------|
+| `GET` | `/.well-known/corundum-operator` | none | No | MVP |
+| `POST` | `/corundum/v1/replies/submit` | `replies: true` | Yes | MVP |
+| `POST` | `/corundum/v1/replies/batch` | `batchSubmission: true` | Yes | Post-MVP |
+| `POST` | `/corundum/v1/migration/notify` | `migration: true` | Yes | Post-MVP |
+| `GET` | `/corundum/v1/events` | `eventStream: true` | Yes | Post-MVP |
+| `GET` | `/corundum/v1/events/snapshots/index.json` | `eventStream: true` | Yes | Post-MVP (optional) |
+
+**Capability gate**: if the capability is not declared `true` in the operator's manifest, the endpoint MUST return `404 Not Found`. This makes "endpoint absent" and "endpoint present but rejecting this request" unambiguous.
+
+**MVP scope**: implementations are required to support `GET /.well-known/corundum-operator` and `POST /corundum/v1/replies/submit`. All other endpoints are post-MVP and MAY be absent.
 
 ---
 

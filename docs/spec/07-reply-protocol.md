@@ -85,6 +85,86 @@ Reply trees MUST be stored as IPFS objects. The receiving operator pins the repl
 
 In a hostile migration where the old operator did not publish final reply tree snapshots, the new operator starts with empty reply trees for historical entries. Users can provide a data export from their old operator (operators must provide data exports on request) that includes reply trees; the new operator accepts this as a seed.
 
+### Normative Reply Submission Specification
+
+**Endpoint declaration.** Operators that declare `capabilities.replies: true` in their Operator Manifest MUST expose:
+
+```
+POST /corundum/v1/replies/submit
+Content-Type: application/json
+```
+
+The request MUST be authenticated per Chapter 19. The request body MUST be a `ReplySubmission` object.
+
+**`ReplySubmission` schema:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `@type` | string | REQUIRED | MUST be `"corundum:ReplySubmission"` |
+| `parentId` | string | REQUIRED | CID of the parent post (base32lower). |
+| `parentAuthor` | string | REQUIRED | IPNS URI of the parent post's author. Format: `ipns://{ipns-name}`. |
+| `reply.content` | string | REQUIRED | CID of the reply activity (base32lower). |
+| `reply.contentHash` | string | REQUIRED | SHA-256 of the canonical JSON of the reply activity. Format: `sha256:{hex}` where `{hex}` is 64 lowercase hexadecimal characters. |
+| `reply.signingRecord` | object | REQUIRED | Inline SigningRecord (schema below). Inline rather than by CID to avoid a separate IPFS fetch during validation. |
+| `submittingOperator` | string | REQUIRED | HTTPS base URL of the submitting operator. MUST exactly match the `id` in the submitting operator's manifest. |
+
+**`reply.signingRecord` object:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `@type` | string | REQUIRED | MUST be `"corundum:SigningRecord"` |
+| `content` | string | REQUIRED | CID of the activity being signed. MUST match `reply.content`. |
+| `signer` | string | REQUIRED | IPNS URI of the signing identity. Format: `ipns://{ipns-name}`. |
+| `algorithm` | string | REQUIRED | Algorithm identifier (e.g., `"ed25519-v1"`). |
+| `signature` | string | REQUIRED | Base64url-encoded (no padding) signature over the canonical JSON of the activity. |
+| `signedAt` | string | OPTIONAL | ISO 8601 datetime (UTC, `Z` suffix) when this signing record was created. |
+
+**`ReplyAcceptance` response:**
+
+HTTP status `200 OK`. `Content-Type: application/json`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `@type` | string | MUST be `"corundum:ReplyAcceptance"` |
+| `parentId` | string | CID of the parent post. Echoed from the submission. |
+| `replyCid` | string | CID of the accepted reply. Echoed from the submission. |
+| `replyTreeCid` | string | CID of the updated reply tree after this reply was linked in. |
+| `acceptedAt` | string | ISO 8601 datetime when the reply was accepted. |
+
+**`ReplyRejection` response:**
+
+`Content-Type: application/json`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `@type` | string | MUST be `"corundum:ReplyRejection"` |
+| `parentId` | string | CID of the parent post. Echoed from the submission. MAY be absent if the submission was too malformed to parse. |
+| `replyCid` | string | CID of the rejected reply. MAY be absent for the same reason. |
+| `reason` | string | Machine-readable reason code (normative list below). |
+| `reasonDescription` | string | Human-readable explanation for operators and logs. Not for display to end users. |
+| `retryAfter` | integer | OPTIONAL. Seconds until the submitter MAY retry. MUST be present when `reason` is `"rate-limited"`. |
+
+**HTTP status codes and normative reason codes:**
+
+| HTTP Status | `reason` | Meaning |
+|-------------|----------|---------|
+| `200 OK` | — | Reply accepted. Body is `ReplyAcceptance`. |
+| `400 Bad Request` | `malformed-submission` | Request body is syntactically invalid or missing required fields. |
+| `400 Bad Request` | `content-hash-mismatch` | `reply.contentHash` does not match SHA-256(canonical_json(activity)). |
+| `400 Bad Request` | `invalid-content-signature` | The signing record's signature fails verification. |
+| `400 Bad Request` | `unknown-parent` | `parentId` is not a post known to this operator. |
+| `401 Unauthorized` | `invalid-operator-signature` | The request's HTTP Message Signature is absent, invalid, uses a revoked key, or fails downgrade-prevention checks. |
+| `403 Forbidden` | `blocked-user` | The reply author's IPNS identity is on the post author's block list. |
+| `403 Forbidden` | `blocked-operator` | The submitting operator is blocked by this operator's federation policy. |
+| `403 Forbidden` | `policy-violation` | The reply violates the post author's reply policy (`allowFrom`, `requireVerifiedIdentity`, or similar). |
+| `403 Forbidden` | `replies-disabled` | The parent post has `allowFrom: nobody`. |
+| `403 Forbidden` | `insufficient-trust-level` | The submitting operator's trust level is below the post's `requireMinimumTrustLevel`. |
+| `403 Forbidden` | `curation-match` | The reply content matches a curation entry this operator is required to enforce. |
+| `429 Too Many Requests` | `rate-limited` | Rate limit exceeded. `Retry-After` header and `retryAfter` field MUST be present. |
+| `503 Service Unavailable` | — | Transient failure. Body MAY be absent. Submitter MUST retry with exponential backoff. |
+
+The reason code list is normative. Receiving operators MUST use one of the defined codes. Submitting operators MUST handle unknown reason codes gracefully by treating them as the generic meaning of the HTTP status code.
+
 ### Chapter 22: Reply Policies
 
 Reply policies give users control over who can engage with their content. They are per-user defaults but can be overridden per-post. When a post-level override exists, it applies instead of the user's default; when no override is set on a post, the user's default applies.
