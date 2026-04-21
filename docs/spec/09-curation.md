@@ -235,5 +235,309 @@ After loading the snapshot, the operator switches to incremental sync from the s
 
 **No authentication required for reads.** Static curation feeds are public by design. Any operator can read any feed; there is no API key, no subscription credential, no access control. The integrity of the feed comes from the cryptographic signatures on the individual CurationEntries — each entry is signed by the curator's declared key, and the authority of the signature can be verified independently of the hosting infrastructure. A malicious CDN that serves modified entries cannot forge valid signatures without the curator's private key. This means operators don't need to trust the CDN; they trust the signatures.
 
+### CurationEntry Wire Format
+
+A CurationEntry is a JSON object. One entry occupies one line in an NDJSON file. The fields are:
+
+```json
+{
+  "type": "CurationEntry",
+  "version": 1,
+  "sequence": 48293,
+  "subjects": [
+    {
+      "hash_type": "sha256",
+      "hash_scope": "media-bytes",
+      "hash_value": "a3f9c2d1e8b74f6a9c3e1d2b5f8a7c4e...",
+      "media_type": "image/jpeg"
+    },
+    {
+      "hash_type": "pdq",
+      "hash_scope": "perceptual-image",
+      "hash_value": "f3a1b2c4d5e6f7a8b9c0d1e2f3a4b5c6",
+      "pdq_quality": 97,
+      "match_threshold": 31
+    }
+  ],
+  "authority": "https://curator.example/.well-known/corundum-curator",
+  "issued": "2025-01-15T12:34:56Z",
+  "reason": "legal/csam-detected",
+  "ordinal": 1.0,
+  "evidence": null,
+  "expires": null,
+  "supersedes": null,
+  "signature": {
+    "algorithm": "ed25519",
+    "key_id": "key-1",
+    "value": "3EqB7vN2..."
+  }
+}
+```
+
+**Field definitions:**
+
+`type` (string, REQUIRED): Always `"CurationEntry"`. Allows parsers to distinguish entry types in mixed NDJSON streams.
+
+`version` (integer, REQUIRED): Always `1` for this version of the spec.
+
+`sequence` (integer, REQUIRED): Monotonically increasing integer assigned by the curator, unique within this feed. Sequence numbers MUST be assigned in order of `issued` time. Gaps are allowed (e.g., if entries are deleted) but sequence numbers MUST NOT be reused.
+
+`subjects` (array, REQUIRED, minimum 1 element): The content being curated. Each element is a subject object (defined below).
+
+`authority` (string, REQUIRED): URL of the Authority Declaration that governs this entry. MUST be the URL at which the declaration is currently served. Operators MUST verify that the declaration at this URL contains the key that signed the entry.
+
+`issued` (string, REQUIRED): ISO 8601 datetime with UTC offset (`Z`), second precision. When the judgment was made.
+
+`reason` (string, REQUIRED): A `category/subcode` reason string from the defined taxonomy (Chapter 29). Implementations MUST reject entries with unrecognized reason strings as malformed.
+
+`ordinal` (number, REQUIRED): A numeric score whose semantics are defined per category (Chapter 29). MUST be a finite IEEE 754 double. `NaN` and `Infinity` are not valid.
+
+`evidence` (string or null, OPTIONAL): A CID or URL pointing to supporting evidence. If present, MUST be either a valid CID (base32lower) or a valid HTTPS URL. Operators MAY fetch evidence but are not required to.
+
+`expires` (string or null, OPTIONAL): ISO 8601 datetime with UTC offset. After this time, operators MUST treat the entry as if it were never received. MUST be strictly later than `issued`.
+
+`supersedes` (integer or null, OPTIONAL): The sequence number of an earlier entry in this feed that this entry replaces. Operators that have applied the superseded entry MUST unapply it and apply this entry instead. The superseded entry's sequence number MUST be lower than this entry's sequence number.
+
+`signature` (object, REQUIRED): Defined below.
+
+**Subject object fields:**
+
+`hash_type` (string, REQUIRED): One of `sha256`, `pdq`, `tmk-pdq`, `chromaprint`, `simhash`.
+
+`hash_scope` (string, REQUIRED): One of `media-bytes`, `media-pixels`, `perceptual-image`, `perceptual-video`, `perceptual-audio`, `text-exact`, `text-normalized`.
+
+`hash_value` (string, REQUIRED): The hash value, hex-encoded lowercase. For `pdq`, 256 bits (64 hex characters). For `sha256`, 256 bits (64 hex characters).
+
+`media_type` (string, OPTIONAL): The MIME type of the content, if known. Informational only.
+
+`pdq_quality` (integer, OPTIONAL): For `pdq` hashes, the PDQ quality score (0–100) of the source image. Images below quality 50 produce unreliable hashes; operators MAY skip matching for low-quality hashes.
+
+`match_threshold` (integer, OPTIONAL): For perceptual hashes, the maximum Hamming distance at which two hashes are considered to match. If absent, the default threshold for the hash type applies: 31 bits for PDQ (out of 256). Curators that have verified high-confidence hashes MAY specify a lower threshold.
+
+**Signing:**
+
+The `signature.value` field contains a base64url-encoded Ed25519 signature over the **canonical form** of the entry: the entry object serialized to canonical JSON (NFKC-normalized, keys sorted lexicographically, no insignificant whitespace) with the `signature` field omitted entirely. The signing procedure is identical to the canonical JSON signing procedure in Chapter 33. Implementations MUST NOT include the `signature` field in the signed bytes.
+
+`signature.algorithm` (string, REQUIRED): Always `"ed25519"` for this version of the spec.
+
+`signature.key_id` (string, REQUIRED): The `key_id` of the key in the Authority Declaration that produced this signature. MUST match exactly one key in the declaration.
+
+`signature.value` (string, REQUIRED): Base64url-encoded (no padding) signature bytes.
+
+### Authority Declaration Wire Format
+
+An Authority Declaration is a JSON object served at the curator's well-known URL (see Feed Discovery below). It MUST be served over HTTPS.
+
+```json
+{
+  "type": "AuthorityDeclaration",
+  "version": 1,
+  "id": "https://curator.example/.well-known/corundum-curator",
+  "organization": {
+    "name": "Example Safety Organization",
+    "type": "nonprofit",
+    "url": "https://safety.example",
+    "registration": "US 501(c)(3) EIN 12-3456789"
+  },
+  "jurisdiction_claims": ["global"],
+  "governance_url": "https://safety.example/governance",
+  "appeal_url": "https://safety.example/appeals",
+  "feed_url": "https://cdn.curator.example/feeds/safety",
+  "hash_capabilities": [
+    { "hash_type": "sha256", "hash_scope": "media-bytes" },
+    { "hash_type": "pdq",    "hash_scope": "perceptual-image" }
+  ],
+  "reason_capabilities": ["legal/csam-detected", "legal/csam-suspected"],
+  "keys": [
+    {
+      "key_id": "key-1",
+      "algorithm": "ed25519",
+      "public_key_multibase": "z6MkhaXgBZDvotDkL...",
+      "created_at": "2024-01-01T00:00:00Z",
+      "expires_at": null,
+      "delegate_for": null
+    },
+    {
+      "key_id": "key-2-classifier",
+      "algorithm": "ed25519",
+      "public_key_multibase": "z6MkvT9aBcDe...",
+      "created_at": "2024-06-01T00:00:00Z",
+      "expires_at": null,
+      "delegate_for": ["legal/csam-detected"]
+    }
+  ],
+  "valid_from": "2024-01-01T00:00:00Z",
+  "valid_until": null,
+  "supersedes": null,
+  "signature": {
+    "algorithm": "ed25519",
+    "key_id": "key-1",
+    "value": "7TrC9wP1..."
+  }
+}
+```
+
+**Field definitions:**
+
+`type` (string, REQUIRED): Always `"AuthorityDeclaration"`.
+
+`version` (integer, REQUIRED): Always `1`.
+
+`id` (string, REQUIRED): The canonical URL at which this declaration is served. MUST match the URL from which it was fetched.
+
+`organization.type` (string, REQUIRED): One of `government`, `nonprofit`, `commercial`, `community`.
+
+`organization.registration` (string, OPTIONAL): Legal registration identifier (tax ID, company number, etc.). Informational.
+
+`jurisdiction_claims` (array of strings, REQUIRED): ISO 3166-1 alpha-2 country codes, or `"global"`. An entry of `"global"` means the curator claims authority applicable to all jurisdictions. Operators MAY give different weight to jurisdiction claims based on their own legal context.
+
+`feed_url` (string, REQUIRED): Base URL of the static curation feed. The sharded entries, Bloom filter, log, and snapshots are served relative to this URL.
+
+`hash_capabilities` (array, REQUIRED): Hash type and scope pairs that this curator produces. Operators use this to know which hash types to compute when checking content against this curator's feed.
+
+`reason_capabilities` (array of strings, REQUIRED): The reason codes this curator publishes. Operators MAY subscribe selectively — an operator that does not want editorial judgments can subscribe to a curator but ignore entries with `reason` in the `editorial/` category.
+
+`keys[].delegate_for` (array of strings or null, REQUIRED): If null, this is the root key, authorized to sign any entry and to sign the declaration itself. If an array, this is a delegate key authorized only to sign entries whose `reason` matches one of the listed patterns. Patterns are exact reason strings or category prefixes (e.g., `"legal"` matches all `legal/*` reason codes). A delegate key MUST NOT sign the Authority Declaration itself; only the root key may.
+
+`keys[].expires_at` (string or null, OPTIONAL): If set, the key is invalid after this time. Operators MUST reject entries signed by an expired key.
+
+`valid_until` (string or null, OPTIONAL): If set, the entire declaration is invalid after this time. Operators MUST re-fetch the declaration before this time to get a renewed or replacement declaration.
+
+`supersedes` (string or null, OPTIONAL): URL of the prior declaration this one replaces. Operators that have cached the prior declaration MUST replace it with this one.
+
+The `signature` field covers the declaration with the `signature` field omitted, using canonical JSON, identical to CurationEntry signing.
+
+### Bloom Filter Binary Format
+
+The Bloom filter file at `/feeds/{authority}/bloom.bin` has the following layout:
+
+```
+Offset  Size   Field
+──────  ─────  ─────────────────────────────────────────────
+0       4      Magic: 0x434F524E ("CORN" in ASCII)
+4       1      Version: 0x01
+5       3      Reserved: 0x000000
+8       8      m: bit-array size in bits (uint64, big-endian)
+16      2      k: number of hash functions (uint16, big-endian)
+18      6      Reserved: 0x000000000000
+24      ceil(m/8)  Bit array, MSB-first packing
+```
+
+Total header size: 24 bytes. Total file size: 24 + ceil(m/8) bytes.
+
+**Bit packing**: Bit index `i` resides in byte `floor(i/8)`, at bit position `7 - (i mod 8)` (MSB = bit 7). Bit 0 of the array is the most significant bit of byte 0.
+
+**Hash function**: For an input byte sequence `x`:
+1. Compute `h1_bytes = SHA-256(x)`. Interpret the first 8 bytes as a big-endian uint64: `h1`.
+2. Compute `h2_bytes = SHA-256(0x01 || x)` (prepend a single byte `0x01`). Interpret the first 8 bytes as a big-endian uint64: `h2`.
+3. For `i = 0` to `k-1`: the bit index to set or test is `(h1 + i * h2) mod m`.
+
+All arithmetic is unsigned 64-bit, with natural wraparound on overflow.
+
+**Input to the hash function**: For a CurationEntry subject, the input is the concatenation of the `hash_type` string (UTF-8, no null terminator), a single `0x00` byte, and the `hash_value` bytes (the hex-decoded binary of the hash value, not the hex string). For a SHA-256 subject with hash value `a3f9c2...`, the input is `"sha256\x00" || <32 binary bytes>`.
+
+A Bloom filter MUST be accompanied by a metadata file at `/feeds/{authority}/bloom-metadata.json`:
+
+```json
+{
+  "version": 1,
+  "authority": "https://curator.example/.well-known/corundum-curator",
+  "generated_at": "2025-01-15T12:00:00Z",
+  "covers_sequence_through": 48293,
+  "entry_count": 2847392,
+  "bit_count": 27255849,
+  "hash_function_count": 7,
+  "target_false_positive_rate": 0.01,
+  "hash_derivation": "sha256-double",
+  "bloom_sha256": "d4e5f6a7b8c9..."
+}
+```
+
+`bloom_sha256` is the hex-encoded SHA-256 of the `bloom.bin` file, allowing operators to detect truncated or corrupted downloads before parsing.
+
+Operators MUST verify the magic bytes and version field before using the filter. Operators MUST verify `bloom_sha256` against the downloaded file. Operators MUST NOT use the filter if verification fails.
+
+### index.json Schema
+
+```json
+{
+  "version": 1,
+  "authority": "https://curator.example/.well-known/corundum-curator",
+  "feed_url": "https://cdn.curator.example/feeds/safety",
+  "latest_sequence": 48293,
+  "generated_at": "2025-01-15T12:05:00Z",
+  "pages": [
+    {
+      "name": "page-0001",
+      "path": "log/page-0001.ndjson.gz",
+      "sequence_start": 1,
+      "sequence_end": 500,
+      "entry_count": 500,
+      "size_bytes": 124832,
+      "sha256": "abcdef01...",
+      "closed_at": "2024-06-01T00:00:00Z"
+    }
+  ],
+  "open_page": {
+    "name": "page-0097",
+    "path": "log/page-0097.ndjson.gz",
+    "sequence_start": 47801,
+    "sequence_end": 48293,
+    "entry_count": 493,
+    "size_bytes": 98441,
+    "sha256": null
+  },
+  "snapshots": [
+    {
+      "name": "snapshot-2025-01-01",
+      "path": "snapshots/snapshot-2025-01-01.ndjson.gz",
+      "sequence_through": 40000,
+      "entry_count": 2700000,
+      "size_bytes": 485234892,
+      "sha256": "fedcba98...",
+      "generated_at": "2025-01-01T00:00:00Z"
+    }
+  ]
+}
+```
+
+**Field definitions:**
+
+`pages` (array): Closed log pages. A page is closed when it reaches the size threshold (RECOMMENDED: 10 MB compressed). Closed pages are immutable; their `sha256` MUST be set. Operators MUST verify `sha256` on closed pages. Pages MUST be listed in ascending order of `sequence_start`.
+
+`open_page` (object or null): The currently active page, still receiving entries. Its `sha256` is null because the file is still being written. Operators MUST NOT cache open pages; they MUST re-fetch the open page on every sync. An open page becomes a closed page when the curator seals it.
+
+`snapshots` (array): Full-dataset snapshots. Each snapshot contains all entries with sequence number ≤ `sequence_through` as a single gzip-compressed NDJSON file. Operators doing initial sync SHOULD use the most recent snapshot as a starting point rather than reading all log pages from page 1.
+
+`sha256` fields: Hex-encoded SHA-256 of the referenced file. REQUIRED for closed pages and snapshots. MUST be null for the open page.
+
+### Feed Discovery
+
+Curators publish an Authority Declaration at a well-known HTTPS path on their domain:
+
+```
+GET https://curator.example/.well-known/corundum-curator
+```
+
+The response MUST be `Content-Type: application/json` and MUST be the Authority Declaration object defined above. The URL in the declaration's `id` field MUST exactly match the URL from which it was fetched (after following redirects). Operators MUST reject declarations where `id` does not match the fetch URL.
+
+The `feed_url` field in the declaration gives the base URL of the static feed. All feed paths (`/bloom.bin`, `/bloom-metadata.json`, `/log/index.json`, `/entries/...`, `/snapshots/...`) are resolved relative to this base URL.
+
+Operators configure curator subscriptions by storing the well-known URL. Everything else — feed location, hash capabilities, signing keys — is discovered from the declaration at that URL.
+
+### Polling Requirements
+
+Operators MUST re-fetch `index.json` at least once per hour for curators publishing in the `legal/` reason category.
+
+Operators SHOULD re-fetch `index.json` at least once per 24 hours for curators publishing in other categories.
+
+Operators MUST use incremental sync (log pages from the last-seen sequence number) after initial load. Operators MUST NOT re-download snapshots on every poll cycle.
+
+Operators SHOULD respect `Cache-Control` and `ETag` headers on `index.json`. If the server returns `304 Not Modified`, the operator has no new entries to process.
+
+Operators MUST re-fetch the Authority Declaration at least once per 24 hours to detect key rotation, revocation, or declaration updates. If `valid_until` is set on the declaration, operators MUST re-fetch before that time.
+
+Operators MUST verify entry signatures on every entry processed, whether from snapshots, log pages, or the open page. An entry with an invalid signature MUST be discarded and MUST NOT be applied to the operator's policy. Operators SHOULD log the discarded entry for investigation.
+
 ---
 
