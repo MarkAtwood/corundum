@@ -1,6 +1,8 @@
-# Corundum Client/Server API
+# A Corundum Client/Server API (Reference Implementation)
 
-The Corundum client/server API is the interface between social media client applications and the Corundum operator they are homed on. When a user installs a Corundum app and connects it to their operator, every action the app takes — posting a status, reading a timeline, following another account, uploading media — goes through this API. This is not the inter-operator protocol (the protocol by which operators communicate with each other to federate content and deliver replies); that is documented separately in the operator protocol specification. This API is scoped entirely to the relationship between an app and the single operator that app is authenticated against.
+The Corundum inter-operator protocol deliberately does not specify a client/server API. That is a policy decision for each operator, not a protocol decision for the spec. What follows is **the reference implementation's chosen client/server API** — a well-reasoned design that other operators are free to adopt, but are not required to.
+
+This API is the interface between social media client applications and the Corundum operator they are homed on. When a user installs an app built for this API and connects it to a compatible operator, every action the app takes — posting a status, reading a timeline, following another account, uploading media — goes through this API. This is not the inter-operator protocol (the protocol by which operators communicate with each other to federate content and deliver replies); that is documented separately in the operator protocol specification.
 
 ## Files
 
@@ -19,12 +21,13 @@ The Corundum client/server API is the interface between social media client appl
 | `09-search.md` | Search endpoints: full-text search plus Corundum-specific lookup by CID and by IPNS name. |
 | `10-identity-migration.md` | Identity and migration: DID, keys, key rotation, RootManifest, archive export, operator migration (cooperative and hostile). |
 | `11-curation.md` | Curation: subscribed curator feeds, per-content label lookup, appeal flow, admin policy management. |
+| `12-alternative-shapes.md` | Alternative API shapes: E2E signing, GraphQL, Nostr-style relay, local-first/IPFS-direct, CQRS, AT Protocol XRPC, and how to combine them. |
 
 ## Mastodon Compatibility
 
-Apps written for the Mastodon API may work against a compatibility shim built on top of this API. Such a shim is not part of the Corundum specification; it is an optional layer that operators may choose to provide. This document set describes the **native Corundum API**, which has full fidelity with the protocol: content is addressed by CID, accounts are identified by IPNS name, and Corundum-specific features (signing transparency, curation labels, identity migration) are available directly rather than being omitted or approximated.
+Apps written for the Mastodon API may work against a compatibility shim built on top of this API. Such a shim is out of scope for this document set. This design has full fidelity with the Corundum protocol: content is addressed by CID, accounts are identified by IPNS name, and Corundum-specific features (signing transparency, curation labels, identity migration) are exposed directly.
 
-Mastodon-compatible client apps that work only against a compatibility shim will not be able to use any Corundum-native features. Native Corundum client apps should target this API directly.
+Apps built for Mastodon that work only against a compatibility shim will not be able to use any Corundum-native features. Apps that want full Corundum fidelity should target this API — or any other operator-defined API that exposes the same capabilities.
 
 ## Quick Reference
 

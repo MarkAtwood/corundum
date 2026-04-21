@@ -1,5 +1,11 @@
 # Design Principles
 
+## Scope
+
+The Corundum inter-operator protocol does not specify a client/server API. That is an explicit design decision: what a social media app shows users, how it authenticates them, and what endpoints it exposes are policy decisions for each operator, not interoperability requirements for the protocol. Two operators with completely different client APIs can still federate with each other just fine.
+
+This document describes the design rationale for the **reference implementation's** client/server API. It is a reasonable design that other operators are free to adopt. An app built against this API will work against any operator that implements it; it will not work against an operator that chose a different API.
+
 ## Why Not Just the Mastodon API
 
 The Mastodon API is a reasonable starting point: it is widely implemented, well-understood by client developers, and covers the core social media operations. Where Corundum's model aligns with Mastodon's, the endpoints match as closely as possible to reduce the cost of building a native Corundum client. Where the models diverge, Corundum departs from Mastodon rather than papering over the differences.
