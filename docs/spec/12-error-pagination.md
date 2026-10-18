@@ -4,7 +4,7 @@
 
 A consistent error format allows any client — whether an operator, a user client, or a monitoring system — to handle errors programmatically without parsing free-form error messages. The design follows RFC 9457 (Problem Details for HTTP APIs) in spirit: errors carry structured machine-readable data alongside a human-readable explanation.
 
-Every Corundum endpoint, inter-operator and client-facing, MUST return a non-2xx response that has a body as a `corundum:Error` with `Content-Type: application/json`. There is no other error format. Endpoint-specific errors are specializations: a `ReplyRejection` (Chapter 21) is a `corundum:Error` with `code` `REPLY_REJECTED`, and its reply reason code is in `details.reason`.
+Every Corundum inter-operator endpoint MUST return a non-2xx response that has a body as a `corundum:Error` with `Content-Type: application/json`. There is no other error format. Endpoint-specific errors are specializations: a `ReplyRejection` (Chapter 21) is a `corundum:Error` with `code` `REPLY_REJECTED`, and its reply reason code is in `details.reason`.
 
 ```json
 {
@@ -49,7 +49,7 @@ Receivers MUST ignore unknown `details` fields. A receiver that gets an unknown 
 - `502 Bad Gateway` — A service the operator depends on (DID resolver, IPFS, a remote operator) failed; `retryable: true` with backoff.
 - `503 Service Unavailable` — The server is temporarily down; `retryable: true` with backoff. The body MAY be absent.
 
-**Error code registry.** Codes are `UPPER_SNAKE_CASE`; `details.reason` values are `lower-kebab-case`. This registry is exhaustive: an operator MUST NOT return a `code` that is not listed here.
+**Error code registry.** Codes are `UPPER_SNAKE_CASE`; `details.reason` values are `lower-kebab-case`. This registry is exhaustive for inter-operator endpoints: an operator MUST NOT return a `code` that is not listed here. Client APIs are outside the protocol; the non-normative reference API (`docs/client-api/00-design.md`) reuses this envelope with its own additional codes.
 
 | Code | Status | Retryable | Condition |
 |------|--------|-----------|-----------|
@@ -80,7 +80,7 @@ New codes are added by revising this registry.
 
 Cursors encode a stable position in the collection: "give me the 20 items after this specific position in the ordering." The position doesn't change as new items are added before or after it. If the client is at position P and requests the next page, it gets the items following P regardless of how many new items arrived after the client's previous request. This is the fundamental guarantee that makes cursor pagination correct for live timelines.
 
-**Scope.** This chapter governs every Corundum collection endpoint: the client-facing timeline, reply tree, and curation-feed endpoints (the paginated fallback of Part XI), and any inter-operator collection endpoint. No inter-operator endpoint defined by this specification currently returns a collection: reply submission, batch submission, and migration notification are single-object POSTs, and manifests are single documents. Two inter-operator mechanisms page through sequences of their own and are NOT governed by this chapter: the event stream resumes by sequence number (`since`, Chapters 48–52), and static curation feeds are read by log page and sequence number (Chapter 32).
+**Scope.** This chapter governs any inter-operator collection endpoint. The non-normative reference client API (`docs/client-api/`) reuses it for its own collections. No inter-operator endpoint defined by this specification currently returns a collection: reply submission, batch submission, and migration notification are single-object POSTs, and manifests are single documents. Two inter-operator mechanisms page through sequences of their own and are NOT governed by this chapter: the event stream resumes by sequence number (`since`, Chapters 48–52), and static curation feeds are read by log page and sequence number (Chapter 32).
 
 **Cursor contents.** A cursor is a keyset cursor: it encodes the sort-key position of the last item returned (for a timeline ordered by epoch index and sequence number, that is an epoch index and sequence number). The operator keeps no per-cursor state. A cursor MUST also encode, and be bound to:
 - the collection it was issued for,

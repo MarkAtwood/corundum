@@ -8,7 +8,7 @@ Accounts are identified by DID. Statuses are identified by their activity id (th
 
 ## Endpoints
 
-### GET /api/v1/corundum/streaming
+### GET /api/corundum/v1/streaming
 
 Opens an event stream for the authenticated user.
 
@@ -70,8 +70,8 @@ data: {"topic":"home","id":"<activity id of the deleted status>","delete_activit
 
 | Code | Error | Description |
 |------|-------|-------------|
-| 401 | `unauthorized` | No valid token provided |
-| 403 | `insufficient_scope` | Token lacks `read` scope |
-| 410 | `gone` | `Last-Event-ID` is older than the resume buffer. The client refetches the affected timelines and notifications through the HTTP endpoints (`04-timelines.md`, `06-notifications.md`), then opens a new stream without `Last-Event-ID`. |
-| 422 | `unprocessable_entity` | A topic is malformed, or names an authority the user is not subscribed to |
-| 429 | `rate_limited` | Too many open streams for this user. Check `Retry-After` header. |
+| 401 | `UNAUTHORIZED` | No valid token provided |
+| 403 | `INSUFFICIENT_SCOPE` | Token lacks `read` scope |
+| 410 | `RESUME_BUFFER_EXHAUSTED` | `Last-Event-ID` is older than the resume buffer. The client refetches the affected timelines and notifications through the HTTP endpoints (`04-timelines.md`, `06-notifications.md`), then opens a new stream without `Last-Event-ID`. |
+| 422 | `VALIDATION_FAILED` | A topic is malformed, or names an authority the user is not subscribed to |
+| 429 | `RATE_LIMITED` | Too many open streams for this user. Check `Retry-After` header. |

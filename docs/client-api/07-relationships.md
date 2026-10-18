@@ -1,20 +1,24 @@
 # Relationships
 
-Relationship endpoints manage the social graph: follows, blocks, and mutes. In Corundum, blocks have protocol-level enforcement across operator boundaries. Mutes are a client-side filter only. This distinction matters and is described in detail below.
+Relationship endpoints manage the social graph: follows, blocks, and mutes. Account `:id` path parameters are DIDs, percent-encoded as one path segment (`00-design.md`, Identifiers).
+
+The user's following list, block list, and mute list are stored encrypted in their RootManifest (spec Chapter 25), so they move with the user to a new operator. Follow lists are private by default; a user may choose to publish theirs.
+
+For a self-custody account (`10-identity-migration.md`, Key custody), every endpoint below that changes one of these lists returns `202 Accepted` with a `pending_root_manifest` for the client to sign and commit, instead of the Relationship entity. The change takes effect when the signed RootManifest is committed.
 
 ## Relationship Query
 
-### GET /api/v1/accounts/relationships
+### GET /api/corundum/v1/accounts/relationships
 
 Returns the authenticated user's relationship to one or more accounts. Use this endpoint to determine follow state, block state, mute state, and pending follow requests before rendering account views.
 
-**Authentication:** Required.
+**Authentication:** Required (`read:follows` scope).
 
 **Query Parameters:**
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `id[]` | array of strings (IPNS names) | Yes | The accounts to query. Multiple values are accepted. |
+| `id[]` | array of strings (DIDs) | Yes | The accounts to query. Multiple values are accepted. |
 
 **Returns:** Array of Relationship entities, in the same order as the requested `id[]` values.
 
@@ -22,32 +26,34 @@ Returns the authenticated user's relationship to one or more accounts. Use this 
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `id` | string (IPNS name) | The account this relationship describes |
+| `id` | string (DID) | The account this relationship describes |
 | `following` | boolean | You are following this account |
 | `followed_by` | boolean | This account follows you |
 | `requested` | boolean | You have a pending follow request to this account |
 | `requested_by` | boolean | This account has a pending follow request to you |
 | `blocking` | boolean | You have blocked this account |
-| `blocked_by` | boolean | This account has blocked you (where detectable) |
+| `blocked_by` | boolean | This account has blocked you (where detectable, for example after a `blocked-user` reply rejection) |
 | `muting` | boolean | You have muted this account |
 | `muting_notifications` | boolean | You have muted notifications from this account |
 | `endorsed` | boolean | You have endorsed (featured) this account on your profile |
 | `note` | string | Your personal note about this account |
-| `corundum.block_enforced` | boolean | Present and `true` when you have blocked this account and protocol-level block enforcement is active |
 
 **Errors:**
 
-| Code | Error | Description |
-|------|-------|-------------|
-| 401 | `unauthorized` | No valid token provided |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 401 | `UNAUTHORIZED` | No valid token provided |
+| 403 | `INSUFFICIENT_SCOPE` | Token lacks `read:follows` scope |
 
 ---
 
 ## Follow Management
 
-### POST /api/v1/accounts/:id/follow
+### POST /api/corundum/v1/accounts/:id/follow
 
 Follows the specified account. If the account has `locked: true`, this creates a follow request rather than an immediate follow.
+
+Your operator adds the account to your encrypted following list and always sends a FollowNotification to the followed account's operator (spec Chapter 26), which keeps that operator's followers cache current and lets it apply followers-only reply policies.
 
 **Authentication:** Required (`write:follows` scope).
 
@@ -55,7 +61,7 @@ Follows the specified account. If the account has `locked: true`, this creates a
 
 | Parameter | Description |
 |-----------|-------------|
-| `:id` | The IPNS name of the account to follow |
+| `:id` | The DID of the account to follow |
 
 **Request Body (optional, application/json or form):**
 
@@ -64,20 +70,20 @@ Follows the specified account. If the account has `locked: true`, this creates a
 | `reblogs` | boolean | `true` | Show this account's boosts in your home timeline |
 | `notify` | boolean | `false` | Receive a `status` notification when this account posts |
 
-**Returns:** Relationship entity.
+**Returns:** Relationship entity (`202` with `pending_root_manifest` for self-custody accounts).
 
 **Errors:**
 
-| Code | Error | Description |
-|------|-------|-------------|
-| 401 | `unauthorized` | No valid token provided |
-| 403 | `insufficient_scope` | Token lacks `write:follows` scope |
-| 404 | `not_found` | No account with that IPNS name is known to this operator |
-| 422 | `unprocessable_entity` | Cannot follow this account (e.g. you are blocked by them) |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 401 | `UNAUTHORIZED` | No valid token provided |
+| 403 | `INSUFFICIENT_SCOPE` | Token lacks `write:follows` scope |
+| 404 | `NOT_FOUND` | No account with that DID could be resolved |
+| 502 | `DID_RESOLUTION_FAILED` | The account's DID document could not be fetched |
 
 ---
 
-### POST /api/v1/accounts/:id/unfollow
+### POST /api/corundum/v1/accounts/:id/unfollow
 
 Unfollows the specified account, or cancels a pending follow request.
 
@@ -87,23 +93,23 @@ Unfollows the specified account, or cancels a pending follow request.
 
 | Parameter | Description |
 |-----------|-------------|
-| `:id` | The IPNS name of the account to unfollow |
+| `:id` | The DID of the account to unfollow |
 
-**Returns:** Relationship entity.
+**Returns:** Relationship entity (`202` with `pending_root_manifest` for self-custody accounts).
 
 **Errors:**
 
-| Code | Error | Description |
-|------|-------|-------------|
-| 401 | `unauthorized` | No valid token provided |
-| 403 | `insufficient_scope` | Token lacks `write:follows` scope |
-| 404 | `not_found` | No account with that IPNS name is known to this operator |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 401 | `UNAUTHORIZED` | No valid token provided |
+| 403 | `INSUFFICIENT_SCOPE` | Token lacks `write:follows` scope |
+| 404 | `NOT_FOUND` | No account with that DID is known to this operator |
 
 ---
 
 ## Block Management
 
-### POST /api/v1/accounts/:id/block
+### POST /api/corundum/v1/accounts/:id/block
 
 Blocks the specified account.
 
@@ -113,32 +119,32 @@ Blocks the specified account.
 
 | Parameter | Description |
 |-----------|-------------|
-| `:id` | The IPNS name of the account to block |
+| `:id` | The DID of the account to block |
 
-**Returns:** Relationship entity with `blocking: true` and `corundum.block_enforced: true`.
+**Returns:** Relationship entity with `blocking: true` (`202` with `pending_root_manifest` for self-custody accounts).
 
-**Corundum block enforcement behavior:**
+**What a block does:**
 
-A block in Corundum is a protocol-level action, not a client-side filter. When you block an account:
+A block keeps the blocked account out of your conversations. It is enforced by your own operator, which is the gatekeeper for the reply trees of your posts:
 
-1. Your operator records the block and marks it for inter-operator enforcement.
-2. When the blocked user's operator subsequently attempts to submit a reply to any of your posts, your operator rejects the submission with a `BLOCKED_USER` error at the inter-operator protocol level. The reply is not delivered.
-3. Your operator performs a retroactive scan of your existing reply trees and removes any prior replies from the blocked account. These replies are no longer visible to you or to others viewing reply threads through your operator.
-4. The blocked user receives a `corundum.block_enforcement` notification informing them that their submission was rejected due to a block (without identifying you as the blocker).
+1. Your operator adds the account's DID to your block list, which is stored encrypted in your RootManifest.
+2. When the blocked user's operator submits a reply to any of your posts, your operator rejects it with `REPLY_REJECTED` and reason `blocked-user` (spec Chapter 21). The reply never enters your reply tree, so it is absent for every reader, on every operator.
+3. Your operator removes the blocked account's earlier replies from the reply trees of your posts.
+4. The blocked user's operator learns of the block from the rejection; Corundum does not pretend a block can be hidden from the person blocked. The blocked user receives a `corundum.reply_rejected` notification the next time they try to reply to you (`06-notifications.md`).
 
-Unfollowing happens automatically when you block someone. If they were following you, that follow relationship is also removed.
+Blocking also removes any follow in either direction.
 
 **Errors:**
 
-| Code | Error | Description |
-|------|-------|-------------|
-| 401 | `unauthorized` | No valid token provided |
-| 403 | `insufficient_scope` | Token lacks `write:blocks` scope |
-| 404 | `not_found` | No account with that IPNS name is known to this operator |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 401 | `UNAUTHORIZED` | No valid token provided |
+| 403 | `INSUFFICIENT_SCOPE` | Token lacks `write:blocks` scope |
+| 404 | `NOT_FOUND` | No account with that DID could be resolved |
 
 ---
 
-### POST /api/v1/accounts/:id/unblock
+### POST /api/corundum/v1/accounts/:id/unblock
 
 Removes a block on the specified account.
 
@@ -148,27 +154,27 @@ Removes a block on the specified account.
 
 | Parameter | Description |
 |-----------|-------------|
-| `:id` | The IPNS name of the account to unblock |
+| `:id` | The DID of the account to unblock |
 
-**Returns:** Relationship entity with `blocking: false`.
+**Returns:** Relationship entity with `blocking: false` (`202` with `pending_root_manifest` for self-custody accounts).
 
-**Note:** Unblocking does not retroactively restore replies that were removed during the block period.
+**Note:** Unblocking does not restore replies that were removed during the block period.
 
 **Errors:**
 
-| Code | Error | Description |
-|------|-------|-------------|
-| 401 | `unauthorized` | No valid token provided |
-| 403 | `insufficient_scope` | Token lacks `write:blocks` scope |
-| 404 | `not_found` | No account with that IPNS name is known to this operator |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 401 | `UNAUTHORIZED` | No valid token provided |
+| 403 | `INSUFFICIENT_SCOPE` | Token lacks `write:blocks` scope |
+| 404 | `NOT_FOUND` | No account with that DID is known to this operator |
 
 ---
 
 ## Mute Management
 
-### POST /api/v1/accounts/:id/mute
+### POST /api/corundum/v1/accounts/:id/mute
 
-Mutes the specified account. A mute is a client-side filter: the muted account's content is hidden in this client, but there is no inter-operator protocol effect.
+Mutes the specified account. A mute is a display filter: your operator and your clients hide the muted account's content from you. The mute list is stored encrypted in your RootManifest, so it follows you across clients and operators. It has no inter-operator effect.
 
 **Authentication:** Required (`write:mutes` scope).
 
@@ -176,7 +182,7 @@ Mutes the specified account. A mute is a client-side filter: the muted account's
 
 | Parameter | Description |
 |-----------|-------------|
-| `:id` | The IPNS name of the account to mute |
+| `:id` | The DID of the account to mute |
 
 **Request Body (optional):**
 
@@ -185,19 +191,19 @@ Mutes the specified account. A mute is a client-side filter: the muted account's
 | `notifications` | boolean | `true` | Also mute notifications from this account |
 | `duration` | integer | 0 | Mute duration in seconds. `0` means indefinite. |
 
-**Returns:** Relationship entity with `muting: true`.
+**Returns:** Relationship entity with `muting: true` (`202` with `pending_root_manifest` for self-custody accounts).
 
 **Errors:**
 
-| Code | Error | Description |
-|------|-------|-------------|
-| 401 | `unauthorized` | No valid token provided |
-| 403 | `insufficient_scope` | Token lacks `write:mutes` scope |
-| 404 | `not_found` | No account with that IPNS name is known to this operator |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 401 | `UNAUTHORIZED` | No valid token provided |
+| 403 | `INSUFFICIENT_SCOPE` | Token lacks `write:mutes` scope |
+| 404 | `NOT_FOUND` | No account with that DID could be resolved |
 
 ---
 
-### POST /api/v1/accounts/:id/unmute
+### POST /api/corundum/v1/accounts/:id/unmute
 
 Removes a mute on the specified account.
 
@@ -207,45 +213,45 @@ Removes a mute on the specified account.
 
 | Parameter | Description |
 |-----------|-------------|
-| `:id` | The IPNS name of the account to unmute |
+| `:id` | The DID of the account to unmute |
 
-**Returns:** Relationship entity with `muting: false`.
+**Returns:** Relationship entity with `muting: false` (`202` with `pending_root_manifest` for self-custody accounts).
 
 **Errors:**
 
-| Code | Error | Description |
-|------|-------|-------------|
-| 401 | `unauthorized` | No valid token provided |
-| 403 | `insufficient_scope` | Token lacks `write:mutes` scope |
-| 404 | `not_found` | No account with that IPNS name is known to this operator |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 401 | `UNAUTHORIZED` | No valid token provided |
+| 403 | `INSUFFICIENT_SCOPE` | Token lacks `write:mutes` scope |
+| 404 | `NOT_FOUND` | No account with that DID is known to this operator |
 
 ---
 
 ## Block vs. Mute
 
-These two mechanisms are intentionally different in Corundum:
+These two mechanisms are intentionally different:
 
-**Block** is a protocol-level enforcement action:
-- The blocked user's operator is notified via `BLOCKED_USER` rejection when they attempt to deliver replies to your posts.
-- Prior replies from the blocked user are retroactively removed from your reply trees.
-- The blocked user receives explicit feedback (a `corundum.block_enforcement` notification) that their reply was rejected. This is a transparency guarantee: rejected content is not silently dropped.
-- The block is permanent and strong until explicitly removed.
+**Block** keeps someone out of your conversations:
+- Your operator rejects their reply submissions to your posts with `REPLY_REJECTED` / `blocked-user`, so their replies are absent for every reader.
+- Their earlier replies are removed from your reply trees.
+- Their operator learns of the block from the rejection, and they receive a `corundum.reply_rejected` notification. Rejected content is not silently dropped.
+- The block lasts until you remove it.
 
-**Mute** is a client-side display filter:
-- The muted user can still reply to your posts; you simply do not see their content in this client.
+**Mute** stops you seeing someone:
+- The muted user can still reply to your posts; you do not see their content.
 - Their replies remain in your reply trees and are visible to other users.
-- No inter-operator enforcement occurs. Their operator receives no signal.
+- No inter-operator signal is sent. Their operator learns nothing.
 - Mutes can be temporary (via `duration`) or indefinite.
 
-Use block when you want the person to have no protocol-level access to your reply threads. Use mute when you want to stop seeing someone's content without affecting their ability to participate in conversations.
+Use block when you want the person to have no access to your reply threads. Use mute when you want to stop seeing someone's content without affecting their ability to participate in conversations.
 
 ---
 
 ## Block and Mute Lists
 
-### GET /api/v1/blocks
+### GET /api/corundum/v1/blocks
 
-Returns all accounts the authenticated user has blocked, paginated.
+Returns all accounts the authenticated user has blocked.
 
 **Authentication:** Required (`read:blocks` scope).
 
@@ -253,17 +259,16 @@ Returns all accounts the authenticated user has blocked, paginated.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `max_id` | string | — | Pagination cursor |
-| `min_id` | string | — | Pagination cursor |
+| `cursor` | string | — | Opaque pagination cursor (`00-design.md`, Pagination) |
 | `limit` | integer | 40 | Maximum number of results (max 80) |
 
-**Returns:** Array of Account entities.
+**Returns:** PaginatedResponse of Account entities.
 
 ---
 
-### GET /api/v1/mutes
+### GET /api/corundum/v1/mutes
 
-Returns all accounts the authenticated user has muted, paginated.
+Returns all accounts the authenticated user has muted.
 
 **Authentication:** Required (`read:mutes` scope).
 
@@ -271,19 +276,18 @@ Returns all accounts the authenticated user has muted, paginated.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `max_id` | string | — | Pagination cursor |
-| `min_id` | string | — | Pagination cursor |
+| `cursor` | string | — | Opaque pagination cursor (`00-design.md`, Pagination) |
 | `limit` | integer | 40 | Maximum number of results (max 80) |
 
-**Returns:** Array of Account entities.
+**Returns:** PaginatedResponse of Account entities.
 
 ---
 
 ## Follow Requests (Locked Accounts)
 
-When an account has `locked: true`, incoming follows create pending follow requests rather than immediate follows. The account owner must approve or reject each request.
+When an account has `locked: true`, incoming follows create pending follow requests rather than immediate follows. The account owner must approve or reject each request. Locking controls who appears as a follower; it does not restrict who can read the account's posts, which are always public.
 
-### GET /api/v1/follow_requests
+### GET /api/corundum/v1/follow_requests
 
 Returns pending incoming follow requests for the authenticated user.
 
@@ -293,15 +297,14 @@ Returns pending incoming follow requests for the authenticated user.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `max_id` | string | — | Pagination cursor |
-| `min_id` | string | — | Pagination cursor |
+| `cursor` | string | — | Opaque pagination cursor (`00-design.md`, Pagination) |
 | `limit` | integer | 40 | Maximum number of results (max 80) |
 
-**Returns:** Array of Account entities (the accounts requesting to follow you).
+**Returns:** PaginatedResponse of Account entities (the accounts requesting to follow you).
 
 ---
 
-### POST /api/v1/follow_requests/:id/authorize
+### POST /api/corundum/v1/follow_requests/:id/authorize
 
 Approves a pending follow request.
 
@@ -311,21 +314,21 @@ Approves a pending follow request.
 
 | Parameter | Description |
 |-----------|-------------|
-| `:id` | The IPNS name of the account whose follow request to approve |
+| `:id` | The DID of the account whose follow request to approve |
 
 **Returns:** Relationship entity.
 
 **Errors:**
 
-| Code | Error | Description |
-|------|-------|-------------|
-| 401 | `unauthorized` | No valid token provided |
-| 403 | `insufficient_scope` | Token lacks `write:follows` scope |
-| 404 | `not_found` | No pending follow request from that account |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 401 | `UNAUTHORIZED` | No valid token provided |
+| 403 | `INSUFFICIENT_SCOPE` | Token lacks `write:follows` scope |
+| 404 | `NOT_FOUND` | No pending follow request from that account |
 
 ---
 
-### POST /api/v1/follow_requests/:id/reject
+### POST /api/corundum/v1/follow_requests/:id/reject
 
 Rejects and removes a pending follow request.
 
@@ -335,14 +338,14 @@ Rejects and removes a pending follow request.
 
 | Parameter | Description |
 |-----------|-------------|
-| `:id` | The IPNS name of the account whose follow request to reject |
+| `:id` | The DID of the account whose follow request to reject |
 
 **Returns:** Relationship entity.
 
 **Errors:**
 
-| Code | Error | Description |
-|------|-------|-------------|
-| 401 | `unauthorized` | No valid token provided |
-| 403 | `insufficient_scope` | Token lacks `write:follows` scope |
-| 404 | `not_found` | No pending follow request from that account |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 401 | `UNAUTHORIZED` | No valid token provided |
+| 403 | `INSUFFICIENT_SCOPE` | Token lacks `write:follows` scope |
+| 404 | `NOT_FOUND` | No pending follow request from that account |

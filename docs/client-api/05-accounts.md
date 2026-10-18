@@ -1,10 +1,10 @@
 # Accounts
 
-Account endpoints provide access to user profiles, their published statuses, and their social graph (followers and following lists). Account IDs in Corundum are IPNS names (base36lower), not opaque integers.
+Account endpoints provide access to user profiles, their published statuses, and their social graph (followers and following lists). Account ids are DIDs (spec Chapter 5), not opaque integers and not IPNS names. A DID in a path is percent-encoded as one path segment (`00-design.md`, Identifiers).
 
 ## Profile Endpoints
 
-### GET /api/v1/accounts/:id
+### GET /api/corundum/v1/accounts/:id
 
 Returns the public profile for any account.
 
@@ -14,37 +14,38 @@ Returns the public profile for any account.
 
 | Parameter | Description |
 |-----------|-------------|
-| `:id` | The account's IPNS name (base36lower) |
+| `:id` | The account's DID, percent-encoded |
 
 **Returns:** Account entity.
 
 **Errors:**
 
-| Code | Error | Description |
-|------|-------|-------------|
-| 404 | `not_found` | No account with that IPNS name is known to this operator |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 404 | `NOT_FOUND` | No account with that DID is known to this operator, and the DID could not be resolved |
+| 502 | `DID_RESOLUTION_FAILED` | The DID document could not be fetched |
 
 ---
 
-### GET /api/v1/accounts/verify_credentials
+### GET /api/corundum/v1/accounts/verify_credentials
 
 Returns the profile of the currently authenticated user. Used by clients to confirm that a token is valid and to fetch the user's own account details.
 
 **Authentication:** Required (any read scope).
 
-**Returns:** Account entity with the additional `source` field containing account settings (privacy, language, note in plain text, etc.).
+**Returns:** Account entity with the additional `source` field containing account settings (language, note in plain text, etc.).
 
 **Errors:**
 
-| Code | Error | Description |
-|------|-------|-------------|
-| 401 | `unauthorized` | No valid token provided |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 401 | `UNAUTHORIZED` | No valid token provided |
 
 ---
 
-### PATCH /api/v1/accounts/update_credentials
+### PATCH /api/corundum/v1/accounts/update_credentials
 
-Updates the authenticated user's profile.
+Updates the authenticated user's profile. The profile is part of the RootManifest's identity block (spec Chapter 9), so a change republishes the RootManifest.
 
 **Authentication:** Required (`write:accounts` scope).
 
@@ -61,101 +62,109 @@ Updates the authenticated user's profile.
 
 All parameters are optional; only provided fields are updated.
 
-**Returns:** Updated Account entity.
+**Returns:** Updated Account entity. For a self-custody account the operator cannot sign the new RootManifest, so it returns `202 Accepted` with a `pending_root_manifest` for the client to sign and commit (`10-identity-migration.md`, Key custody).
 
 **Errors:**
 
-| Code | Error | Description |
-|------|-------|-------------|
-| 401 | `unauthorized` | No valid token provided |
-| 403 | `insufficient_scope` | Token lacks `write:accounts` scope |
-| 422 | `unprocessable_entity` | Validation failed (e.g. display name too long) |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 401 | `UNAUTHORIZED` | No valid token provided |
+| 403 | `INSUFFICIENT_SCOPE` | Token lacks `write:accounts` scope |
+| 422 | `VALIDATION_FAILED` | Validation failed (e.g. display name too long) |
 
 ---
 
 ## Statuses and Social Graph
 
-### GET /api/v1/accounts/:id/statuses
+### GET /api/corundum/v1/accounts/:id/statuses
 
-Returns statuses published by the specified account, in reverse chronological order.
+Returns statuses published by the specified account, newest first. Edited posts appear once, as their newest version, at the position of their first version.
 
-**Authentication:** Optional. Private accounts require an approved follow.
+**Authentication:** Optional.
 
 **Path Parameters:**
 
 | Parameter | Description |
 |-----------|-------------|
-| `:id` | The account's IPNS name (base36lower) |
+| `:id` | The account's DID, percent-encoded |
 
 **Query Parameters:**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `max_id` | string (CID) | — | Return results older than this CID |
-| `min_id` | string (CID) | — | Return results newer than this CID |
+| `cursor` | string | — | Opaque cursor from a previous response |
 | `limit` | integer | 20 | Maximum number of results (max 40) |
+| `before` | string (RFC 3339) | — | Only items whose sort time is strictly earlier than this |
+| `after` | string (RFC 3339) | — | Only items whose sort time is strictly later than this |
 | `only_media` | boolean | `false` | Return only statuses that include media attachments |
 | `exclude_replies` | boolean | `false` | Exclude statuses that are replies |
 | `exclude_reblogs` | boolean | `false` | Exclude boosts/reblogs |
 | `tagged` | string | — | Return only statuses tagged with this hashtag (without `#`) |
 
-**Returns:** Array of Status entities, newest first.
+**Returns:** PaginatedResponse of Status entities.
 
 ---
 
-### GET /api/v1/accounts/:id/followers
+### GET /api/corundum/v1/accounts/:id/followers
 
-Returns a list of accounts that follow the specified account.
+Returns the accounts that follow the specified account, as known to this operator. For a local account this is the operator's followers cache, built from the FollowNotifications that followers' operators send (spec Chapter 25). For a remote account it is whatever this operator has learned and may be incomplete.
 
-**Authentication:** Optional. Some operators may restrict this endpoint for private accounts.
+**Authentication:** Optional.
 
 **Path Parameters:**
 
 | Parameter | Description |
 |-----------|-------------|
-| `:id` | The account's IPNS name (base36lower) |
+| `:id` | The account's DID, percent-encoded |
 
 **Query Parameters:**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `max_id` | string | — | Pagination cursor (opaque) |
-| `min_id` | string | — | Pagination cursor (opaque) |
+| `cursor` | string | — | Opaque cursor from a previous response |
 | `limit` | integer | 40 | Maximum number of results (max 80) |
 
-**Returns:** Array of Account entities.
+**Returns:** PaginatedResponse of Account entities.
 
 ---
 
-### GET /api/v1/accounts/:id/following
+### GET /api/corundum/v1/accounts/:id/following
 
-Returns a list of accounts that the specified account follows.
+Returns the accounts that the specified account follows. Following lists are stored encrypted in the RootManifest and are private by default (spec Chapter 25). This endpoint returns the list only if its owner has published it, or if the requester is the owner.
 
-**Authentication:** Optional. Some operators may restrict this endpoint for private accounts.
+**Authentication:** Optional.
 
 **Path Parameters:**
 
 | Parameter | Description |
 |-----------|-------------|
-| `:id` | The account's IPNS name (base36lower) |
+| `:id` | The account's DID, percent-encoded |
 
 **Query Parameters:**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `max_id` | string | — | Pagination cursor (opaque) |
-| `min_id` | string | — | Pagination cursor (opaque) |
+| `cursor` | string | — | Opaque cursor from a previous response |
 | `limit` | integer | 40 | Maximum number of results (max 80) |
 
-**Returns:** Array of Account entities.
+**Returns:** PaginatedResponse of Account entities.
+
+**Errors:**
+
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 403 | `FORBIDDEN` | The account has not published its following list |
+| 404 | `NOT_FOUND` | No account with that DID is known to this operator |
 
 ---
 
 ## Lookup and Search
 
-### GET /api/v1/accounts/lookup
+### GET /api/corundum/v1/accounts/lookup
 
-Resolves an account by its Webfinger handle without performing a search. Returns a single account if found. This is useful when the client already knows the handle and wants the canonical Account entity.
+Resolves an account by handle without performing a search. Useful when the client already knows the handle and wants the canonical Account entity.
+
+The operator resolves the handle to a DID (WebFinger for an account handle, the `_corundum` DNS TXT record for a domain handle) and accepts it only if the DID document lists the handle back in `alsoKnownAs` (spec Chapter 8). A handle that fails this bidirectional check is not returned.
 
 **Authentication:** Optional.
 
@@ -163,21 +172,23 @@ Resolves an account by its Webfinger handle without performing a search. Returns
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `acct` | string | Yes | Webfinger handle in `user@domain` format, or local `user` without domain |
+| `acct` | string | Yes | Account handle in `user@domain` form, local `user` without domain, or a domain handle (`alice.example`) |
 
 **Returns:** Account entity.
 
 **Errors:**
 
-| Code | Error | Description |
-|------|-------|-------------|
-| 404 | `not_found` | No account found for that handle |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 400 | `HANDLE_VERIFICATION_FAILED` | The handle resolves to a DID whose document does not list it |
+| 404 | `NOT_FOUND` | No account found for that handle |
+| 502 | `DID_RESOLUTION_FAILED` | The DID document could not be fetched |
 
 ---
 
-### GET /api/v1/accounts/search
+### GET /api/corundum/v1/accounts/search
 
-Searches for accounts by display name, username, or handle. Optionally resolves remote accounts via federation.
+Searches for accounts by display name, username, or handle. Optionally resolves remote accounts.
 
 **Authentication:** Optional. The `following` filter requires authentication.
 
@@ -186,19 +197,20 @@ Searches for accounts by display name, username, or handle. Optionally resolves 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `q` | string | — | Search query (required) |
+| `cursor` | string | — | Opaque cursor from a previous response |
 | `limit` | integer | 40 | Maximum number of results (max 80) |
-| `resolve` | boolean | `false` | If `true`, attempt to resolve remote accounts via federation when no local match is found |
+| `resolve` | boolean | `false` | If `true`, attempt to resolve `q` as a handle (as `lookup` does) when no local match is found |
 | `following` | boolean | `false` | If `true`, restrict results to accounts the authenticated user follows |
 
-**Returns:** Array of Account entities.
+**Returns:** PaginatedResponse of Account entities.
 
 ---
 
 ## Corundum-Specific Account Endpoints
 
-### GET /api/v1/accounts/:id/archive_index
+### GET /api/corundum/v1/accounts/:id/archive_index
 
-Returns the machine-readable ArchiveIndex for the account's IPFS-backed archive. This structure allows clients and third-party tools to directly access and verify the account's content via IPFS without relying on the operator.
+Returns the entry points into the account's IPFS-backed archive, so that clients and third-party tools can read and verify the account's content from IPFS without relying on the operator.
 
 **Authentication:** Optional.
 
@@ -206,48 +218,32 @@ Returns the machine-readable ArchiveIndex for the account's IPFS-backed archive.
 
 | Parameter | Description |
 |-----------|-------------|
-| `:id` | The account's IPNS name (base36lower) |
+| `:id` | The account's DID, percent-encoded |
 
-**Returns:** ArchiveIndex structure:
+**Returns:**
 
 ```json
 {
-  "cid": "bafyreib4gy7...",
-  "epochs": [
-    {
-      "epoch": 0,
-      "entry_count": 500,
-      "epoch_cid": "bafyreiabc1...",
-      "sequence_start": 1,
-      "sequence_end": 500
-    },
-    {
-      "epoch": 1,
-      "entry_count": 391,
-      "epoch_cid": "bafyreidef2...",
-      "sequence_start": 501,
-      "sequence_end": 891
-    }
-  ],
-  "total_entries": 891
+  "root_manifest_cid": "<CID of the RootManifest>",
+  "archive_index_cid": "<CID of the ArchiveIndex>",
+  "current_chunk_cid": "<CID of the current chunk>",
+  "latest_seq": 891,
+  "epoch_count": 3
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `cid` | string (CID) | CID of the current ArchiveIndex object in IPFS |
-| `epochs` | array | List of archive epochs, in ascending epoch order |
-| `epochs[].epoch` | integer | Epoch number (0-based) |
-| `epochs[].entry_count` | integer | Number of status entries in this epoch |
-| `epochs[].epoch_cid` | string (CID) | CID of the epoch archive object in IPFS |
-| `epochs[].sequence_start` | integer | Sequence number of the first entry in this epoch |
-| `epochs[].sequence_end` | integer | Sequence number of the last entry in this epoch |
-| `total_entries` | integer | Total number of status entries across all epochs |
+| `root_manifest_cid` | string (CID) | CID of the current RootManifest (an attached JWS signed by the account's content keys) |
+| `archive_index_cid` | string (CID) | CID of the top-level ArchiveIndex named by that RootManifest |
+| `current_chunk_cid` | string (CID) | CID of the current chunk, holding the entries not yet finalized into an epoch |
+| `latest_seq` | integer | `seq` of the newest entry |
+| `epoch_count` | integer | Number of finalized epochs |
 
-The `epoch_cid` values can be used to fetch epoch archive data directly from IPFS, independent of this operator. This enables data portability, third-party verification, and recovery from operator failure.
+Epochs are fixed chunks of 256 entries: epoch *k* holds `seq` 256*k* to 256*k*+255, and the current chunk holds the entries after the last finalized epoch. To find an entry, walk ArchiveIndex → IndexPage → epoch as described in spec Chapter 9. Every object is content-addressed, so a client verifies what it fetches by hashing it, and verifies the RootManifest's signatures against the content keys in the account's DID document (spec Chapter 34). The values above are a convenience: a client that does not trust the operator reads them from the RootManifest itself.
 
 **Errors:**
 
-| Code | Error | Description |
-|------|-------|-------------|
-| 404 | `not_found` | No account with that IPNS name is known to this operator |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 404 | `NOT_FOUND` | No account with that DID is known to this operator |

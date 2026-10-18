@@ -1,30 +1,59 @@
 # Identity and Migration
 
-Identity in Corundum is decoupled from operators. A user's identity is their IPNS keypair and DID document. The operator is a service provider: it hosts the user's content and delivers it to the network, but it does not own the identity. Migration moves the hosting relationship without changing the identity. Followers do not need to take any action when their contact migrates.
+Identity in Corundum belongs to the user, not to an operator (spec Chapters 5–7). The user's identity is their DID. The operator is a service provider: it hosts the user's content and delivers it to the network, but it cannot change the DID document, because only the user's update keys can. Migration moves the hosting relationship without changing the identity, so followers do not need to take any action when someone they follow moves.
 
 This section has no Mastodon analogue.
 
 ## Concepts
 
-**IPNS name:** The account's stable, globally portable identifier. It is the base36lower-encoded hash of the user's Ed25519 public key. It does not change when the user migrates operators.
+**DID:** The account's persistent identifier and its Account `id` (`00-design.md`). Corundum accepts `did:webvh` (the default), `did:plc`, and `did:key` (spec Chapter 5). The DID never changes when the user changes operator, rotates keys, or changes handle.
 
-**DID document:** A W3C Decentralized Identifier document that records the account's current public key, operator endpoint, and recovery key. Published at a well-known URL and also pinned in IPFS.
+**DID document:** Lists the user's handles in `alsoKnownAs` and contains exactly one `CorundumIdentity` service entry, whose `serviceEndpoint` has `ipnsName` (the current content key), `operatorEndpoint` (the current operator's origin, e.g. `https://birdsite.example`), and optionally `additionalKeys` (spec Chapter 6). For `did:webvh` the document is published as a hash-chained log, `did.jsonl`, at a URL derived from the DID: `did:webvh:<SCID>:birdsite.example:users:alice` resolves from `https://birdsite.example/users/alice/did.jsonl`. Clients resolve the log; they never trust a plain `did.json` copy.
 
-**RootManifest:** A signed JSON object stored in IPFS that is the canonical record of an account's state: current operator, current public key, archive epoch list, and profile metadata. The IPNS name resolves to the CID of the current RootManifest.
+**IPNS name:** The user's Ed25519 content-signing key, and the pointer to their RootManifest. It is not an account identifier: it changes whenever the content key changes, including on every move to a new operator. The DID document always names the current one.
 
-**Recovery key:** A DID recovery key is separate from the signing key used for day-to-day posting. It is used only for hostile migrations, where the old operator is offline or uncooperative. The user holds the recovery key offline; the operator never sees it.
+**RootManifest:** The attached JWS (spec Chapter 9) that the IPNS name points to. It names the user's DID, operator endpoint, timeline and ArchiveIndex, StateMap, ReplyMap, and encrypted social-graph lists. It is signed by every content key the DID document lists.
 
-**Cooperative migration:** The old operator is available and willing to provide a signed migration statement and export the user's archive.
+**Update keys and recovery key:** The keys that change the DID document: `did:webvh` log `updateKeys` (with pre-rotation), or `did:plc` rotation keys. They are always held by the user, on the user's device, and an operator never sees them. The user should also keep a recovery key offline (the pre-rotated next key for `did:webvh`; a higher-priority rotation key for `did:plc`). Every identity change in this document is a DID update signed by the client with one of these keys; the operator only relays or publishes it.
 
-**Hostile migration:** The old operator is unavailable or uncooperative. The user proves ownership via their DID recovery key and the new operator fetches the archive directly from IPFS using the IPNS-linked ArchiveIndex. No cooperation from the old operator is required.
+**Migration:** A content key change plus a change of `operatorEndpoint`, made by the user's DID update (spec Chapter 7). There is one flow. A cooperative old operator can make it faster; a hostile one cannot stop it, because the DID update is the only step that carries authority and the archive is in IPFS.
+
+---
+
+## Key Custody
+
+Every account has a `key_custody` mode, shown as `corundum.key_custody` on the Account entity (`02-entities.md`). It says who holds the content key. Update keys are user-held in both modes.
+
+**`operator` (the default).** The operator holds the content key. When the user posts, edits, deletes, boosts, favourites, follows, or changes their profile, the operator builds the activity bytes, assigns `seq`, signs the SigningRecord, and signs and publishes the new RootManifest and IPNS record. This is the familiar experience, and it is the only mode in which the Mastodon shim can post (`13-mastodon-shim.md`).
+
+**`self`.** The client holds the content key, so the operator cannot publish anything in the user's name. Operator-signing endpoints (`POST`, `PUT`, and `DELETE /api/corundum/v1/statuses`, reblog, favourite, and their undo endpoints) return `409 CUSTODY_MODE_MISMATCH`. Instead:
+
+1. The client reads `next_seq` from `GET /api/corundum/v1/identity`, builds the activity with that `seq` and `attributedTo` set to the user's DID, and signs a detached-JWS SigningRecord over its exact bytes (`02-entities.md`).
+2. The client submits both with `POST /api/corundum/v1/activities` (`03-statuses.md`), base64url-encoded so that JSON transport never re-serializes them. The operator verifies the CID, the signatures (spec Chapter 34), the `seq`, and the author.
+3. The operator responds `202 Accepted` with a pending RootManifest:
+
+```json
+{
+  "pending_root_manifest": {
+    "payload": "<base64url of the RootManifest payload bytes>",
+    "ipns_record": "<base64url of the unsigned IPNS record>"
+  }
+}
+```
+
+4. The client signs the payload as an attached JWS (`corundumType` `"RootManifest"`, one signature per content key), signs the IPNS record, and commits both with `PUT /api/corundum/v1/identity/root_manifest`.
+
+Any other write that changes the RootManifest without publishing an activity (follow, block, and mute lists; profile fields) also returns `202` with a `pending_root_manifest` for a self-custody user, committed the same way.
+
+A `did:key` user is always `self`: their only key is their identity.
 
 ---
 
 ## Identity Endpoints
 
-### GET /api/v1/identity
+### GET /api/corundum/v1/identity
 
-Get the authenticated user's full identity record.
+Get the authenticated user's identity record.
 
 **Authentication:** Required (`read:identity` scope)
 
@@ -32,72 +61,108 @@ Get the authenticated user's full identity record.
 
 ```json
 {
-  "ipns_name": "k51qzi5uqu5dh9ihj4p2v5sl3hxvv27ryx2w0xrsv6jmmui2qbv7bhg4c1jbdx",
-  "did": "did:web:alice.example",
-  "did_document_url": "https://alice.example/.well-known/did.json",
-  "current_operator": "https://social.example",
-  "current_root_manifest_cid": "bafyreiabcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopq",
-  "signing_algorithms": ["ed25519"],
-  "key_count": 2,
-  "recovery_key_present": true
+  "did": "did:webvh:<SCID>:birdsite.example:users:alice",
+  "did_method": "did:webvh",
+  "did_log_url": "https://birdsite.example/users/alice/did.jsonl",
+  "handles": ["acct:alice@birdsite.example"],
+  "ipns_name": "<IPNS name>",
+  "operator_endpoint": "https://birdsite.example",
+  "root_manifest_cid": "<CID of the RootManifest>",
+  "key_custody": "operator",
+  "content_keys": [
+    { "kid": "<IPNS name>", "alg": "Ed25519" }
+  ],
+  "next_seq": 1043
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `ipns_name` | string | The account's IPNS name (base36lower). This is the stable identity that persists across operator migrations. |
-| `did` | string | The account's W3C Decentralized Identifier. |
-| `did_document_url` | string | URL where the DID document is published. Typically `https://<domain>/.well-known/did.json`. |
-| `current_operator` | string | Base URL of the operator currently hosting this account. |
-| `current_root_manifest_cid` | string | CID of the RootManifest currently published under this IPNS name. |
-| `signing_algorithms` | array of strings | Algorithm(s) supported for this account's signing key(s). |
-| `key_count` | integer | Number of active signing keys registered for this account. |
-| `recovery_key_present` | boolean | Whether a DID recovery key has been registered. Accounts without a recovery key cannot perform hostile migrations. |
+| `did` | string | The account's DID. This is the Account `id`. |
+| `did_method` | string | `did:webvh`, `did:plc`, or `did:key`. |
+| `did_log_url` | string or null | For `did:webvh`, the URL of the DID log (`did.jsonl`). `null` for other methods. |
+| `handles` | array of strings | The handles the DID document lists in `alsoKnownAs` (`acct:` and `dns:` URIs). |
+| `ipns_name` | string | The current content key and RootManifest pointer, as named by the DID document. |
+| `operator_endpoint` | string | The origin of the operator the DID document names. |
+| `root_manifest_cid` | string | CID of the RootManifest currently published under `ipns_name`. |
+| `key_custody` | string | `operator` or `self` (see Key Custody). |
+| `content_keys` | array | The required signing set: the key in `ipnsName` plus every key in `additionalKeys` (spec Chapter 34). `alg` values come from the spec Chapter 36 registry. |
+| `next_seq` | integer | The `seq` the user's next activity must carry. |
 
 ---
 
-### GET /api/v1/identity/keys
+### GET /api/corundum/v1/identity/root_manifest
 
-List the signing keys registered for the authenticated user's account.
+Get the RootManifest currently published under the authenticated user's IPNS name.
 
 **Authentication:** Required (`read:identity` scope)
 
-**Returns:** Array of key objects.
-
-```json
-[
-  {
-    "key_id": "key-1",
-    "algorithm": "ed25519",
-    "public_key_multibase": "z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
-    "created_at": "2024-01-15T09:00:00Z",
-    "active": true
-  },
-  {
-    "key_id": "key-0",
-    "algorithm": "ed25519",
-    "public_key_multibase": "z6MkpGuzuD38tpgZKPfmLmmD8R6gihP9S6jK3LsE7tCrBFfQ",
-    "created_at": "2023-06-01T12:00:00Z",
-    "active": false
-  }
-]
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `key_id` | string | Opaque identifier for this key within the account's key history. |
-| `algorithm` | string | Signing algorithm, e.g. `ed25519`. |
-| `public_key_multibase` | string | The public key encoded in multibase format (base58btc, prefix `z`). |
-| `created_at` | string (ISO 8601) | When this key was registered. |
-| `active` | boolean | Whether this key is currently the active signing key. At most one key is active at a time. Inactive keys remain valid for a grace period after rotation to allow in-flight signatures to verify. |
+**Returns:** The stored attached-JWS bytes, exactly as stored and never re-serialized, with `Content-Type: application/jose+json`. The response carries the manifest's CID in a `Corundum-CID` header, so the client can check the bytes by hashing them (spec Chapter 33). The payload structure is defined in spec Chapter 9.
 
 ---
 
-### POST /api/v1/identity/keys/rotate
+### PUT /api/corundum/v1/identity/root_manifest
 
-Rotate the signing key. The new key becomes the active signing key. The old key remains valid for a grace period (operator-configurable, default 7 days) to allow in-flight content signatures to be verified.
+Commit a RootManifest that a self-custody client has signed (see Key Custody).
 
-The operator publishes an updated RootManifest with the new public key and broadcasts a `KeyRotationNotification` to known peers.
+**Authentication:** Required (`write:identity` scope)
+
+**Request Body:**
+
+```json
+{
+  "root_manifest": "<base64url of the attached JWS bytes>",
+  "ipns_record": "<base64url of the signed IPNS record>"
+}
+```
+
+The operator checks that the JWS payload is byte-identical to the pending payload it issued, that every key in the required set signed it, and that the IPNS record is signed by the IPNS key and names the manifest's CID. It then stores and publishes both.
+
+**Returns:** `200 OK` with `{ "root_manifest_cid": "<CID of the RootManifest>" }`.
+
+**Errors:**
+
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 400 | `ACTIVITY_INVALID` | A signature is missing or invalid (`details.reason` `signature-invalid`), or the payload differs from the pending one. |
+| 409 | `CUSTODY_MODE_MISMATCH` | The account is in `operator` custody. |
+| 409 | `SEQ_CONFLICT` | The pending manifest is stale: another write has been committed since it was issued. Request a new one. |
+
+---
+
+### POST /api/corundum/v1/identity/content_key
+
+Ask the operator to generate a new content key, for an `operator`-custody user who wants to replace a lost or compromised key (spec Chapter 7). This does not change anything by itself: the new key takes effect only when the user's DID update names it.
+
+**Authentication:** Required (`write:identity` scope)
+
+**Request Body:** None.
+
+**Returns:** The proposed `CorundumIdentity` service endpoint, which the client puts into a DID update and signs with the user's update key:
+
+```json
+{
+  "proposed_service": {
+    "ipnsName": "<IPNS name of the new content key>",
+    "operatorEndpoint": "https://birdsite.example"
+  }
+}
+```
+
+A self-custody client generates its own key and builds the DID update without calling this endpoint.
+
+**Errors:**
+
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 409 | `CUSTODY_MODE_MISMATCH` | The account is in `self` custody. |
+| 422 | `VALIDATION_FAILED` | The account's DID is a `did:key` (`details.reason` `did-key-immutable`). |
+
+---
+
+### POST /api/corundum/v1/identity/did_updates
+
+Submit a DID update that the client has signed with the user's update key (or recovery key): a `did:webvh` log entry or a `did:plc` operation. This is how a user rotates their content key, adds a key (spec Chapter 35), changes handles, or moves to a new operator.
 
 **Authentication:** Required (`write:identity` scope)
 
@@ -105,56 +170,40 @@ The operator publishes an updated RootManifest with the new public key and broad
 
 **Request Body:**
 
+```json
+{
+  "method": "did:webvh",
+  "update": "<base64url of the signed log entry or PLC operation>"
+}
+```
+
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `new_public_key_multibase` | string | yes | The new public key in multibase format. |
-| `proof` | string | yes | A signature over the new public key bytes, produced with the current active private key. This proves the key rotation is authorized by the current key holder. |
+| `method` | string | yes | `did:webvh` or `did:plc`. |
+| `update` | string | yes | The signed log entry (one `did.jsonl` line) or PLC operation, base64url-encoded so it reaches the operator byte for byte. |
 
-**Returns:** Updated array of key objects (same shape as `GET /api/v1/identity/keys`). The new key appears as `active: true`; the previous key appears as `active: false`.
+**Behavior:** The operator verifies the update: for `did:webvh`, that it chains to the current log and is signed by a currently authorized update key (or satisfies pre-rotation); for `did:plc`, that it is a valid operation for the DID. It MUST NOT alter the update. It then publishes it: for `did:webvh`, by appending it to the log it hosts; for `did:plc`, by submitting it to `plc.directory`. If the updated document names a content key this operator holds, the operator publishes a RootManifest under that IPNS name, committing to the same archive (the same epochs, with the same CIDs).
+
+The operator holds no update key and cannot produce a DID update itself.
+
+**Returns:** `200 OK` with the resolved identity record (same shape as `GET /api/corundum/v1/identity`).
 
 **Errors:**
 
-| Code | Error | Description |
-|------|-------|-------------|
-| 400 | `invalid_proof` | The `proof` signature does not verify against the current active key and the provided new public key. |
-| 409 | `rotation_in_progress` | A key rotation is already in progress for this account. Wait for the previous rotation to complete before initiating another. |
-| 422 | `unsupported_algorithm` | The key algorithm implied by the multibase encoding is not supported by this operator. |
-
----
-
-### GET /api/v1/identity/root_manifest
-
-Get the full RootManifest currently published under the authenticated user's IPNS name.
-
-**Authentication:** Required (`read:identity` scope)
-
-**Returns:** The RootManifest JSON object as it is stored in IPFS. The exact structure is defined in the Corundum protocol specification. The `cid` field in the response wrapper is the CID of this manifest object.
-
-```json
-{
-  "cid": "bafyreiabcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopq",
-  "manifest": {
-    "version": 1,
-    "ipns_name": "k51qzi5uqu5dh9ihj4p2v5sl3hxvv27ryx2w0xrsv6jmmui2qbv7bhg4c1jbdx",
-    "operator_endpoint": "https://social.example",
-    "current_public_key": "z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
-    "epochs": [
-      { "epoch": 0, "archive_index_cid": "bafyreiabc..." }
-    ],
-    "profile_cid": "bafyreiabc...",
-    "signed_at": "2024-03-10T12:00:00Z",
-    "signature": "..."
-  }
-}
-```
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 400 | `DID_UPDATE_INVALID` | The update does not verify, does not chain to the current log, or is not for this user's DID. |
+| 422 | `VALIDATION_FAILED` | The DID is a `did:key` (`details.reason` `did-key-immutable`), which has no updates. |
+| 502 | `DID_RESOLUTION_FAILED` | The current DID log or PLC state could not be fetched. |
+| 502 | `UPSTREAM_UNAVAILABLE` | `plc.directory` did not accept the operation. |
 
 ---
 
 ## Migration Endpoints
 
-### POST /api/v1/migration/export
+### POST /api/corundum/v1/migration/export
 
-Request the operator to prepare a migration export package. This is an asynchronous operation: the operator assembles the ArchiveIndex and confirms all epoch CIDs are available in IPFS, then returns a completion record with the root CID of the export. The export package is an IPFS DAG that can be fetched by any new operator, with or without cooperation from the current operator.
+Ask the current operator to prepare an export of the user's archive. This is optional: a cooperative operator saves the new operator some fetching, but everything the new operator needs is in IPFS. Exporting is an asynchronous traversal of every object reachable from the current RootManifest (spec Chapter 9), written as a CAR file.
 
 **Authentication:** Required (`write:identity` scope)
 
@@ -164,47 +213,43 @@ Request the operator to prepare a migration export package. This is an asynchron
 
 ```json
 {
-  "export_id": "abc123",
+  "export_id": "<operator-assigned export id>",
   "status": "pending"
 }
 ```
 
-Poll `GET /api/v1/migration/export/:export_id` for progress.
+Poll `GET /api/corundum/v1/migration/export/:export_id` for progress.
 
 **Completion response** (when `status` is `complete`):
 
 ```json
 {
-  "export_id": "abc123",
+  "export_id": "<operator-assigned export id>",
   "status": "complete",
-  "archive_index_cid": "bafyreiabcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopq",
-  "total_entries": 891,
-  "ipfs_dag_root": "bafyreiabcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopq",
-  "expires_at": "2024-04-10T12:00:00Z"
+  "root_manifest_cid": "<CID of the RootManifest>",
+  "car_url": "https://birdsite.example/api/corundum/v1/migration/export/<export id>/archive.car",
+  "expires_at": "2025-04-10T12:00:00Z"
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `archive_index_cid` | string | CID of the ArchiveIndex object, which is the root of the user's content history. Any new operator can use this CID to fetch the full archive from IPFS. |
-| `total_entries` | integer | Number of content entries (statuses, boosts, etc.) in the archive. |
-| `ipfs_dag_root` | string | CID of the top-level DAG node encompassing the full migration package. Identical to `archive_index_cid` for single-epoch accounts; may differ for multi-epoch accounts where the root points to a manifest that lists all epoch CIDs. |
-| `expires_at` | string (ISO 8601) | The export pin will be retained by this operator until this time. After expiry, the content remains in IPFS but may be unpinned by this operator. |
+| `root_manifest_cid` | string | The RootManifest the export was traversed from. Everything in the CAR file is reachable from it and can be verified against it. |
+| `car_url` | string | Where the CAR file can be downloaded until `expires_at`. |
+| `expires_at` | string (ISO 8601) | After this time the operator may delete the CAR file. The content stays in IPFS. |
 
 **Errors:**
 
-| Code | Error | Description |
-|------|-------|-------------|
-| 404 | `not_found` | Export job ID does not exist or does not belong to the authenticated user |
-| 409 | `export_in_progress` | An export is already in progress for this account |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 404 | `NOT_FOUND` | The export id does not exist or does not belong to the authenticated user. |
+| 409 | `EXPORT_IN_PROGRESS` | An export is already in progress for this account. |
 
 ---
 
-### POST /api/v1/migration/incoming
+### POST /api/corundum/v1/migration/incoming
 
-Begin an incoming migration. Called on the **new** operator — the operator the user is migrating to. The user must have already authenticated to the new operator (e.g., by creating a new account that will be replaced by the migrated identity, or by a pre-migration authentication flow the new operator provides).
-
-The new operator uses the supplied information to resolve the user's IPNS name, fetch the ArchiveIndex from IPFS, pin all content, and publish a new RootManifest that declares the new operator as the current hosting endpoint.
+Begin a move to this operator. Called on the **new** operator, by a user who has authenticated to it (for example, with a newly created account that the migrated identity will replace).
 
 **Authentication:** Required (`write:identity` scope)
 
@@ -212,89 +257,58 @@ The new operator uses the supplied information to resolve the user's IPNS name, 
 
 **Request Body:**
 
-```json
-{
-  "ipns_name": "k51qzi5uqu5dh9ihj4p2v5sl3hxvv27ryx2w0xrsv6jmmui2qbv7bhg4c1jbdx",
-  "source_operator": "https://old.example",
-  "migration_proof": "...",
-  "did_document": { "..." : "..." }
-}
-```
-
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `ipns_name` | string | yes | The IPNS name of the identity being migrated (base36lower). |
-| `source_operator` | string | no | Base URL of the previous operator. Provided when known; the new operator may use this to attempt a cooperative fetch of the migration package. Omit for hostile migrations where the old operator is unreachable. |
-| `migration_proof` | string | yes | A signed migration statement authorizing this move. For cooperative migrations, this is signed with the IPNS private key. For hostile migrations, this is signed with the DID recovery key. The new operator verifies the proof against the public key in the DID document before proceeding. |
-| `did_document` | object | yes | The current DID document for this identity. The new operator verifies the document and uses it to resolve the signing key for the `migration_proof` verification. |
+| `did` | string | yes | The DID being moved. |
+| `ipns_name` | string | no | For a self-custody user: the new content key the client generated. Omit to have this operator generate one (`operator` custody). |
 
-**Migration proof verification:**
+**Behavior:**
 
-- For cooperative migrations, the proof is a signature over the string `migrate:<ipns_name>:<new_operator_base_url>`, produced with the IPNS private key.
-- For hostile migrations, the proof is the same statement signed with the DID recovery key.
-
-The new operator verifies the proof before accepting the migration. If verification fails, the request is rejected with `invalid_proof`.
+1. The new operator resolves the DID and checks that it is not already hosted here.
+2. It returns the proposed `CorundumIdentity` service endpoint: the new `ipnsName` (its own or the client's) and its own origin as `operatorEndpoint`.
+3. The client builds a DID update naming that service endpoint, signs it with the user's update key, and submits it with `POST /api/corundum/v1/identity/did_updates` on the new operator. If the user's `did:webvh` log is hosted on the old operator's domain, the update also moves the DID to the new operator's domain, which the `portable: true` parameter permits (spec Chapter 7).
+4. Once the update is published, the new operator fetches the archive from IPFS (or from an export, if one was provided), verifies every object by CID, pins it, and publishes a RootManifest under the new IPNS name that commits to the same epochs with the same CIDs.
+5. The new operator sends a MigrationNotification to the operators of the user's followers and of the accounts they follow. A MigrationNotification is an unsigned hint sent as an RFC 9421-authenticated request; receivers re-resolve the DID and act only on what the DID document says.
 
 **Returns:** Migration job record.
 
 ```json
 {
-  "migration_id": "xyz789",
-  "status": "fetching_archive"
+  "migration_id": "<operator-assigned migration id>",
+  "status": "awaiting_did_update",
+  "proposed_service": {
+    "ipnsName": "<IPNS name of the new content key>",
+    "operatorEndpoint": "https://newop.example"
+  }
 }
 ```
 
-Poll `GET /api/v1/migration/incoming/:migration_id` for progress.
+Poll `GET /api/corundum/v1/migration/incoming/:migration_id` for progress.
 
-**Status values:** `fetching_archive` → `pinning_content` → `publishing_manifest` → `complete` | `failed`
+**Status values:** `awaiting_did_update` → `fetching_archive` → `pinning_content` → `publishing_manifest` → `notifying` → `complete` | `failed`
 
 **Completion response:**
 
 ```json
 {
-  "migration_id": "xyz789",
+  "migration_id": "<operator-assigned migration id>",
   "status": "complete",
-  "ipns_name": "k51qzi5uqu5dh9ihj4p2v5sl3hxvv27ryx2w0xrsv6jmmui2qbv7bhg4c1jbdx",
-  "new_root_manifest_cid": "bafyreiabcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopq",
-  "entries_imported": 891,
-  "completed_at": "2024-03-10T14:32:00Z"
+  "did": "did:webvh:<SCID>:newop.example:users:alice",
+  "root_manifest_cid": "<CID of the RootManifest>",
+  "entries_imported": 1042,
+  "operators_notified": 14,
+  "completed_at": "2025-03-10T14:32:00Z"
 }
 ```
+
+`did` reflects any move of the `did:webvh` log to the new domain; the SCID, and therefore the identity, is unchanged.
+
+**Hostile migration.** The flow is the same. A hostile old operator can refuse to export and can keep publishing under the old IPNS name, but neither matters: the new operator fetches the archive from IPFS (from the old operator's node while it runs, or from any operator that cached it), and nothing the old key signs is authorized once the DID no longer names it (spec Chapter 34). The user's DID update is the only authority in either case. A user who has lost their update key signs the DID update with their recovery key.
 
 **Errors:**
 
-| Code | Error | Description |
-|------|-------|-------------|
-| 400 | `invalid_proof` | The `migration_proof` signature does not verify against the key in the supplied DID document. |
-| 409 | `already_hosted` | This operator already hosts an account with this IPNS name. |
-| 422 | `unresolvable_identity` | The IPNS name could not be resolved and no `source_operator` was provided or that operator did not respond. |
-
----
-
-### POST /api/v1/migration/notify
-
-Broadcast a migration notification to operators known to this account's social graph. Called after an incoming migration completes. The new operator sends a signed `MigrationNotification` to all operators that have interacted with this account, informing them of the new hosting endpoint. Followers' operators update their records so future deliveries go to the correct operator.
-
-**Authentication:** Required (`write:identity` scope)
-
-**Request Body:** None. The operator constructs the signed `MigrationNotification` from its own records (the account's IPNS name, the new operator endpoint, and the current RootManifest CID).
-
-**Returns:**
-
-```json
-{
-  "notified_count": 14,
-  "failed_count": 2,
-  "failed_operators": [
-    "https://failing.example"
-  ]
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `notified_count` | integer | Number of remote operators that acknowledged the notification. |
-| `failed_count` | integer | Number of remote operators that could not be reached or returned an error. |
-| `failed_operators` | array of strings | Base URLs of operators that could not be notified. The operator will retry these asynchronously; this list reflects the state at the time of the API response. |
-
-Failures are non-fatal. Operators that are temporarily unreachable will receive the migration notification the next time they attempt to deliver a reply or follow request to the old operator endpoint, at which point the routing will be corrected. The `MigrationNotification` is also published in IPFS and linked from the new RootManifest, so any operator can discover the migration independently.
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 409 | `ALREADY_HOSTED` | This operator already hosts this DID. |
+| 422 | `VALIDATION_FAILED` | The DID is a `did:key` and no `ipns_name` was supplied (`details.reason` `did-key-immutable`): a `did:key` user moves by publishing a RootManifest naming the new operator with their own key. |
+| 502 | `DID_RESOLUTION_FAILED` | The DID document could not be resolved. |

@@ -1,12 +1,14 @@
 # Status Endpoints
 
-Status endpoints are the core of the Corundum posting API. They let clients create, read, edit, delete, and interact with statuses. Because Corundum statuses are content-addressed, the `:id` parameter throughout this document is a CID — not a database integer. Every endpoint path that takes `:id` expects a base32lower CID (e.g., `bafyreiemxf5abjwjbikoz4mc3a3dla6ual3jsgpdr4cjr3oz3evfyavhwq`).
+Status endpoints are the core of the Corundum posting API. They let clients create, read, edit, delete, and interact with statuses. Because Corundum statuses are content-addressed, the `:id` parameter throughout this document is an activity identifier: the CIDv1 (raw codec, sha2-256, base32 `bafkrei...`) of the activity's exact stored bytes (spec Chapter 33), not a database integer.
 
-All endpoints that modify state require a Bearer token in the `Authorization` header. Read-only endpoints on public content accept unauthenticated requests. Scope requirements are noted per endpoint.
+All endpoints that modify state require a Bearer token in the `Authorization` header. Read-only endpoints accept unauthenticated requests, because all Corundum content is public (spec Chapter 40). Scope requirements are noted per endpoint.
+
+The endpoints that publish an activity (`POST`, `PUT`, `DELETE /statuses`, reblog, unreblog, favourite, unfavourite) are for accounts whose content key the operator holds (`corundum.key_custody` `"operator"`, the default). For a self-custody account they return `409 CUSTODY_MODE_MISMATCH`; the client builds and signs the activity itself and submits it with `POST /api/corundum/v1/activities` (below). Key custody is described in `10-identity-migration.md`.
 
 ---
 
-## POST /api/v1/statuses
+## POST /api/corundum/v1/statuses
 
 Create a new status.
 
@@ -17,62 +19,62 @@ Create a new status.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `status` | string | Conditionally | The text content of the status. Required unless `media_ids[]` is present. Maximum length is determined by the operator's instance configuration (default 500 characters). |
-| `media_ids[]` | array of strings | Conditionally | Array of media attachment IDs (returned by the media upload endpoint) to attach to this status. Required if `status` is absent. Maximum 4 attachments per status. |
+| `media_ids[]` | array of strings | Conditionally | Array of media attachment IDs (operator-local ids returned by the media upload endpoint, `08-media.md`) to attach to this status. Required if `status` is absent. Maximum 4 attachments per status. |
 | `poll` | object | No | Poll configuration. See poll sub-fields below. Mutually exclusive with `media_ids[]`. |
 | `poll.options[]` | array of strings | If poll present | The poll answer choices. Minimum 2, maximum 4. |
 | `poll.expires_in` | integer | If poll present | Duration in seconds until the poll closes. |
 | `poll.multiple` | boolean | No | If true, voters may select multiple options. Default false. |
 | `poll.hide_totals` | boolean | No | If true, vote totals are hidden until the poll closes. Default false. |
-| `in_reply_to_id` | string (CID) | No | CID of the status this is a reply to. If supplied, the server verifies the referenced CID exists before accepting the post. |
+| `in_reply_to_id` | string | No | Activity id of the status this is a reply to. The reply is submitted to the parent author's operator through the reply protocol (spec Chapter 21). |
 | `sensitive` | boolean | No | Mark the status as containing sensitive content. Default false. |
 | `spoiler_text` | string | No | Content warning text shown before the content. Setting this implicitly sets `sensitive` to true. |
-| `visibility` | string | No | One of `public`, `unlisted`, `private`, `direct`. Default is the user's configured default visibility. |
-| `language` | string | No | BCP 47 language tag for the status content. If absent, the operator may attempt auto-detection. |
+| `visibility` | string | No | Only `public` is accepted (spec Chapter 40). Any other value is rejected with `VALIDATION_FAILED`, `details.reason` `visibility-unsupported`. |
+| `language` | string | No | BCP 47 language tag for the status content. If absent, the language is unspecified. |
 | `scheduled_at` | string (ISO 8601) | No | If provided, the status is scheduled for future publication rather than posted immediately. Returns a ScheduledStatus entity instead of a Status entity. |
 
 **Server-side processing:**
 
-When the server receives a valid post request, it does not simply insert a row into a database. It performs the following steps before returning a response:
+1. The operator builds the activity's bytes once: an ActivityStreams object with `attributedTo` set to the user's DID, `to` set to the public collection, `published`, and the next `seq` in the user's timeline (spec Chapter 11). These bytes are never re-serialized afterwards.
+2. It computes the activity id: the raw-codec CID of those bytes (spec Chapter 33).
+3. It stores the bytes in IPFS and pins them.
+4. It signs the bytes with the user's content key, producing a detached JWS SigningRecord (spec Chapter 12), and stores and pins that too.
+5. It appends an Entry (`seq`, activity id, SigningRecord CID) to the user's current chunk (spec Chapter 9).
+6. It publishes a new RootManifest and a new IPNS record pointing to it.
+7. For a reply, it submits the reply to the parent author's operator. A rejection arrives later as a `corundum.reply_rejected` notification (`06-notifications.md`).
 
-1. Constructs the canonical JSON representation of the activity from the submitted fields.
-2. Computes the CID of that canonical JSON. This CID becomes the status `id`.
-3. Stores the activity object in IPFS and pins it.
-4. Creates a SigningRecord: signs the activity CID with the user's Ed25519 key and stores the SigningRecord in IPFS.
-5. Updates the user's ArchiveIndex to include the new CID.
-6. Publishes a new IPNS record pointing to the updated RootManifest.
+The returned `id` is the CID from step 2. Any client that holds the activity bytes can check it by hashing them.
 
-The returned `id` is the CID produced in step 2. Because the CID is derived from the content, the server cannot fabricate or alter it; any client that receives a status can independently verify the `id` by recomputing the CID from the content.
-
-**Returns:** Status entity.
+**Returns:** Status entity (`02-entities.md`).
 
 **Example response:**
 
 ```json
 {
-  "id": "bafyreiemxf5abjwjbikoz4mc3a3dla6ual3jsgpdr4cjr3oz3evfyavhwq",
-  "created_at": "2024-03-10T12:34:56.789Z",
+  "id": "<activity id>",
+  "created_at": "2025-03-15T14:22:11.000Z",
   "in_reply_to_id": null,
   "in_reply_to_account_id": null,
   "sensitive": false,
   "spoiler_text": "",
   "visibility": "public",
   "language": "en",
-  "uri": "https://social.example/statuses/bafyreiemxf5abjwjbikoz4mc3a3dla6ual3jsgpdr4cjr3oz3evfyavhwq",
-  "url": "https://social.example/@alice/bafyreiemxf5abjwjbikoz4mc3a3dla6ual3jsgpdr4cjr3oz3evfyavhwq",
+  "uri": "https://birdsite.example/statuses/<activity id>",
+  "url": "https://birdsite.example/@alice/<activity id>",
   "replies_count": 0,
   "reblogs_count": 0,
   "favourites_count": 0,
   "content": "<p>Hello, federated world.</p>",
   "reblog": null,
-  "account": { "id": "k51qzi5uqu5dlvj2baxnqndepeb86cbk3ng6bn9tx0dv7azvq7rjz47q2", "..." : "..." },
+  "account": { "id": "did:webvh:<SCID>:birdsite.example:users:alice", "...": "..." },
   "media_attachments": [],
   "tags": [],
   "emojis": [],
   "corundum": {
-    "cid": "bafyreiemxf5abjwjbikoz4mc3a3dla6ual3jsgpdr4cjr3oz3evfyavhwq",
-    "signing_record_cid": "bafyreiabcdef...",
-    "sequence_number": 43,
-    "epoch": 0,
+    "seq": 1042,
+    "epoch": 4,
+    "signing_record_cid": "<CID of the SigningRecord>",
+    "replaces": null,
+    "replaced_by": null,
     "curation_labels": []
   }
 }
@@ -80,107 +82,152 @@ The returned `id` is the CID produced in step 2. Because the CID is derived from
 
 **Error responses:**
 
-| HTTP status | Error code | Meaning |
-|-------------|------------|---------|
-| 401 | `unauthorized` | No valid token provided. |
-| 403 | `insufficient_scope` | Token does not have `write:statuses` scope. |
-| 422 | `validation_error` | Missing required fields, content too long, or invalid `in_reply_to_id`. |
-| 503 | `ipfs_unavailable` | The operator's IPFS backend is temporarily unreachable. |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 401 | `UNAUTHORIZED` | No valid token provided. |
+| 403 | `INSUFFICIENT_SCOPE` | Token does not have `write:statuses` scope. |
+| 403 | `CURATION_REJECTED` | The content matched a curation rule this operator enforces. |
+| 409 | `CUSTODY_MODE_MISMATCH` | The account is self-custodied; use `POST /api/corundum/v1/activities`. |
+| 422 | `VALIDATION_FAILED` | Missing required fields, content too long, unsupported `visibility`, or unknown `in_reply_to_id`. |
+| 503 | `IPFS_UNAVAILABLE` | The operator's IPFS backend is temporarily unreachable. |
 
 ---
 
-## GET /api/v1/statuses/:id
+## POST /api/corundum/v1/activities
 
-Fetch a single status by its CID.
+Publish an activity that the client built and signed itself. This is the write path for self-custody accounts; it covers every activity type (posts, edits, `Delete`, `Announce`, `Like`).
 
-**Required scope:** None for public statuses. `read:statuses` required to fetch non-public statuses you are authorized to see.
+**Required scope:** `write:statuses`
 
-**Path parameter:** `:id` — the CID of the status.
+**Request body** (JSON):
 
-**Returns:** Status entity.
+```json
+{
+  "activity": "<base64url of the exact activity bytes>",
+  "signing_record": "<base64url of the SigningRecord bytes>"
+}
+```
 
-**Notes:** The operator looks up the status by CID from its local store. If the status is not locally cached (e.g., it belongs to a remote user whose content has not been fetched), the operator may attempt to fetch it from IPFS or from the authoring user's operator. If the CID is not found after resolution attempts, the response is 404.
+Both values are base64url so that the JSON transport never re-serializes the signed bytes.
+
+**Behavior:** The operator computes the activity's CID, verifies the SigningRecord against the bytes (spec Chapter 34), and checks that `attributedTo` is the authenticated user's DID and that `seq` equals the `next_seq` reported by `GET /api/corundum/v1/identity`. It then stores and pins both objects and prepares the new current chunk and RootManifest. Because only the user can sign the RootManifest and IPNS record, it responds `202 Accepted` with a pending RootManifest, which the client signs and commits with `PUT /api/corundum/v1/identity/root_manifest` (`10-identity-migration.md`). The activity is published when that commit succeeds.
+
+**Returns:** `202 Accepted`:
+
+```json
+{
+  "id": "<activity id>",
+  "pending_root_manifest": {
+    "payload": "<base64url of the RootManifest payload bytes>",
+    "ipns_record": "<base64url of the unsigned IPNS record>"
+  }
+}
+```
 
 **Error responses:**
 
-| HTTP status | Error code | Meaning |
-|-------------|------------|---------|
-| 401 | `unauthorized` | Status has non-public visibility and no token was provided. |
-| 403 | `forbidden` | Status has non-public visibility and your account is not authorized to see it. |
-| 404 | `not_found` | No status with this CID is known to this operator. |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 400 | `ACTIVITY_INVALID` | `details.reason` is `cid-mismatch`, `signature-invalid`, `seq-mismatch`, or `author-mismatch`. |
+| 401 | `UNAUTHORIZED` | No valid token provided. |
+| 403 | `INSUFFICIENT_SCOPE` | Token does not have `write:statuses` scope. |
+| 409 | `CUSTODY_MODE_MISMATCH` | The account is operator-custodied; use the status endpoints. |
+| 409 | `SEQ_CONFLICT` | Another activity already took this `seq`; fetch `next_seq` and rebuild. |
 
 ---
 
-## DELETE /api/v1/statuses/:id
+## GET /api/corundum/v1/statuses/:id
+
+Fetch a single status by its activity id.
+
+**Required scope:** None.
+
+**Path parameter:** `:id` — the activity id.
+
+**Returns:** Status entity. If the status has been edited, this is the requested version, with `corundum.replaced_by` naming the newer one.
+
+**Notes:** The operator looks the status up in its local store. If it is not cached locally, the operator may fetch it from IPFS or from the author's operator, verifying the CID and SigningRecord before serving it.
+
+**Error responses:**
+
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 404 | `NOT_FOUND` | No status with this id is known to this operator. |
+| 410 | `GONE` | The author deleted this status. |
+
+---
+
+## DELETE /api/corundum/v1/statuses/:id
 
 Delete a status. The authenticated user must be the author.
 
 **Required scope:** `write:statuses`
 
-**Path parameter:** `:id` — the CID of the status to delete.
+**Path parameter:** `:id` — the activity id of the status to delete.
 
-**Behavior:** Deletion in a content-addressed system requires clarification. The original CID and the content it identifies are immutable — you cannot destroy a hash. What "delete" means in Corundum is:
+**Behavior:** An identifier cannot be destroyed, and the archive tree never changes (spec Chapter 9). Deleting means (spec Chapter 13):
 
-1. The operator publishes a Tombstone activity that references the original status CID and is signed by the author's key.
-2. The operator unpins the original activity from its IPFS node, allowing it to be garbage-collected if no other node is pinning it.
-3. The status is removed from the author's ArchiveIndex.
-4. The operator broadcasts the Tombstone to federated operators via the inter-operator protocol.
+1. The operator publishes an AS2 `Delete` activity whose `object` is `:id`, signed and appended to the user's timeline like any other activity.
+2. The status's StateMap slot gets `deletedBy`, naming the `Delete` activity.
+3. The operator unpins the status and its SigningRecords and stops serving them; later requests return `410 GONE`.
+4. The operator notifies operators known to have fetched the content.
 
-The original CID may persist in the IPFS network if other nodes have pinned it. The Tombstone is the authoritative signal that the author has retracted the content; well-behaved operators and clients that receive the Tombstone will remove the content from display. Content that was fetched and cached before the Tombstone was broadcast may continue to be available to nodes that have not yet processed the Tombstone.
+Copies pinned elsewhere may persist. Receivers verify the `Delete` before acting on it.
 
-**Returns:** Status entity of the deleted status (with content still present, so the client can display "you deleted this post" confirmation).
+**Returns:** Status entity of the deleted status (with content still present, so the client can offer "delete and redraft").
 
 **Error responses:**
 
-| HTTP status | Error code | Meaning |
-|-------------|------------|---------|
-| 401 | `unauthorized` | No valid token provided. |
-| 403 | `forbidden` | You are not the author of this status. |
-| 404 | `not_found` | No status with this CID is known to this operator. |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 401 | `UNAUTHORIZED` | No valid token provided. |
+| 403 | `FORBIDDEN` | You are not the author of this status. |
+| 404 | `NOT_FOUND` | No status with this id is known to this operator. |
+| 409 | `CUSTODY_MODE_MISMATCH` | The account is self-custodied; publish a `Delete` with `POST /api/corundum/v1/activities`. |
 
 ---
 
-## PUT /api/v1/statuses/:id
+## PUT /api/corundum/v1/statuses/:id
 
 Edit a status. The authenticated user must be the author.
 
 **Required scope:** `write:statuses`
 
-**Path parameter:** `:id` — the CID of the status to edit.
+**Path parameter:** `:id` — the activity id of the version being edited.
 
-**Request body:** Same fields as `POST /api/v1/statuses`.
+**Request body:** Same fields as `POST /api/corundum/v1/statuses`.
 
-**Behavior:** Editing a content-addressed status produces a new activity, not a mutation of the existing one. The edit process is:
+**Behavior:** An edit is a new activity (spec Chapter 13):
 
-1. A new activity is constructed from the submitted fields, with an additional `predecessor_cid` field pointing to the CID of the status being edited.
-2. The new activity is stored in IPFS. Its CID becomes the new status `id`.
-3. The original CID is not deleted; it remains in the IPFS network and in history. The `predecessor_cid` link in the new activity is what connects the edit chain.
-4. The author's ArchiveIndex is updated to point to the new CID.
+1. The operator builds a new activity with the same `@type`, `attributedTo`, and `inReplyTo` as the edited version, plus `replaces: <:id>`.
+2. It is published like any other activity, with a new `seq` and a new id.
+3. The edited version's StateMap slot gets `replacedBy`, naming the new version. The old version stays in the archive.
 
-The result is an immutable edit history: every version of a status exists as its own CID, and each version (except the first) declares its predecessor. Clients that want to show edit history can walk the `predecessor_cid` chain.
+Timelines list each post once: its newest version, at the position of its first version. An edit to a reply is submitted to the parent's operator as a new reply submission; reply trees show the version that operator accepted.
 
-**Returns:** Status entity of the newly created (edited) status. The returned `id` is the new CID, not the original.
+**Returns:** Status entity of the new version. Its `id` is the new activity id and its `corundum.replaces` is `:id`.
 
 **Error responses:**
 
-| HTTP status | Error code | Meaning |
-|-------------|------------|---------|
-| 401 | `unauthorized` | No valid token provided. |
-| 403 | `forbidden` | You are not the author of this status. |
-| 404 | `not_found` | No status with this CID is known to this operator. |
-| 422 | `validation_error` | Invalid field values in the request body. |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 401 | `UNAUTHORIZED` | No valid token provided. |
+| 403 | `FORBIDDEN` | You are not the author of this status, or its activity type prohibits edits. |
+| 404 | `NOT_FOUND` | No status with this id is known to this operator. |
+| 409 | `CUSTODY_MODE_MISMATCH` | The account is self-custodied; publish the edit with `POST /api/corundum/v1/activities`. |
+| 422 | `VALIDATION_FAILED` | Invalid field values in the request body. |
 
 ---
 
-## GET /api/v1/statuses/:id/context
+## GET /api/corundum/v1/statuses/:id/context
 
-Fetch the reply thread surrounding a status: the ancestors (statuses this one replies to, walking up the reply chain) and the descendants (replies to this status and their replies).
+Fetch the reply thread surrounding a status: the ancestors (walking up the reply chain) and the descendants (replies accepted into the reply trees below it).
 
-**Required scope:** None for public statuses. `read:statuses` for non-public statuses.
+**Required scope:** None.
 
-**Path parameter:** `:id` — the CID of the status.
+**Path parameter:** `:id` — the activity id of the status.
 
-**Returns:** An object with two keys:
+**Returns:**
 
 ```json
 {
@@ -189,161 +236,113 @@ Fetch the reply thread surrounding a status: the ancestors (statuses this one re
 }
 ```
 
-`ancestors` is ordered from the root of the thread down to the immediate parent of the requested status. `descendants` is a depth-first ordered list of all replies.
+`ancestors` is ordered from the root of the thread down to the immediate parent of the requested status. `descendants` is a depth-first ordered list of replies.
 
-**Notes:** Reply threads in Corundum may span multiple operators. The serving operator will attempt to fetch statuses from remote operators for threads that originated elsewhere. Statuses that could not be fetched are omitted from the response rather than causing an error; the thread may therefore have gaps.
+**Notes:** Descendants come from the reply trees published by each parent author's operator (spec Chapter 21). For an edited reply, the thread shows the version the parent's operator accepted, not a newer one; clients must not follow `replaced_by` inside a thread. Statuses that could not be fetched are omitted, so the thread may have gaps.
 
 ---
 
-## POST /api/v1/statuses/:id/reblog
+## POST /api/corundum/v1/statuses/:id/reblog
 
-Reblog (boost) a status. Creates a Reblog activity that references the original status CID and publishes it to the author's timeline.
+Reblog (boost) a status. Publishes an `Announce` activity whose `object` is `:id`.
 
 **Required scope:** `write:statuses`
 
-**Path parameter:** `:id` — the CID of the status to reblog.
+**Path parameter:** `:id` — the activity id of the status to reblog.
 
-**Returns:** Status entity of the reblog activity (not the original status). The `reblog` field of the returned entity contains the original Status entity.
+**Returns:** Status entity of the `Announce` activity. Its `reblog` field contains the original Status entity. Reblogging a status you have already reblogged returns your existing reblog and publishes nothing.
 
 **Error responses:**
 
-| HTTP status | Error code | Meaning |
-|-------------|------------|---------|
-| 401 | `unauthorized` | No valid token provided. |
-| 403 | `forbidden` | The status is not visible to you, or the author has disabled reblogs. |
-| 404 | `not_found` | No status with this CID is known to this operator. |
-| 422 | `already_reblogged` | You have already reblogged this status. |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 401 | `UNAUTHORIZED` | No valid token provided. |
+| 404 | `NOT_FOUND` | No status with this id is known to this operator. |
+| 409 | `CUSTODY_MODE_MISMATCH` | The account is self-custodied. |
 
 ---
 
-## POST /api/v1/statuses/:id/unreblog
+## POST /api/corundum/v1/statuses/:id/unreblog
 
-Remove a reblog of a status. Publishes a Retract activity for the Reblog activity.
+Remove a reblog. Publishes a `Delete` activity naming your `Announce` activity.
 
 **Required scope:** `write:statuses`
 
-**Path parameter:** `:id` — the CID of the status that was reblogged (the original, not the reblog activity).
+**Path parameter:** `:id` — the activity id of the original status (not of the `Announce`).
 
-**Returns:** Status entity of the original status, with updated `reblogs_count`.
+**Returns:** Status entity of the original status, with updated `reblogs_count`. If you have not reblogged it, nothing is published.
 
 **Error responses:**
 
-| HTTP status | Error code | Meaning |
-|-------------|------------|---------|
-| 401 | `unauthorized` | No valid token provided. |
-| 404 | `not_found` | No status with this CID is known, or you have not reblogged it. |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 401 | `UNAUTHORIZED` | No valid token provided. |
+| 404 | `NOT_FOUND` | No status with this id is known to this operator. |
+| 409 | `CUSTODY_MODE_MISMATCH` | The account is self-custodied. |
 
 ---
 
-## POST /api/v1/statuses/:id/favourite
+## POST /api/corundum/v1/statuses/:id/favourite
 
-Favourite a status.
+Favourite a status. Publishes a `Like` activity whose `object` is `:id`. Favouriting a status you have already favourited publishes nothing.
 
 **Required scope:** `write:favourites`
 
-**Path parameter:** `:id` — the CID of the status to favourite.
+**Path parameter:** `:id` — the activity id of the status to favourite.
 
 **Returns:** Status entity with updated `favourites_count`.
 
 **Error responses:**
 
-| HTTP status | Error code | Meaning |
-|-------------|------------|---------|
-| 401 | `unauthorized` | No valid token provided. |
-| 403 | `forbidden` | The status is not visible to you. |
-| 404 | `not_found` | No status with this CID is known to this operator. |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 401 | `UNAUTHORIZED` | No valid token provided. |
+| 404 | `NOT_FOUND` | No status with this id is known to this operator. |
+| 409 | `CUSTODY_MODE_MISMATCH` | The account is self-custodied. |
 
 ---
 
-## POST /api/v1/statuses/:id/unfavourite
+## POST /api/corundum/v1/statuses/:id/unfavourite
 
-Remove a favourite from a status.
+Remove a favourite. Publishes a `Delete` activity naming your `Like` activity. If you have not favourited the status, nothing is published.
 
 **Required scope:** `write:favourites`
 
-**Path parameter:** `:id` — the CID of the status to unfavourite.
+**Path parameter:** `:id` — the activity id of the status.
 
 **Returns:** Status entity with updated `favourites_count`.
 
 **Error responses:**
 
-| HTTP status | Error code | Meaning |
-|-------------|------------|---------|
-| 401 | `unauthorized` | No valid token provided. |
-| 404 | `not_found` | No status with this CID is known, or you have not favourited it. |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 401 | `UNAUTHORIZED` | No valid token provided. |
+| 404 | `NOT_FOUND` | No status with this id is known to this operator. |
+| 409 | `CUSTODY_MODE_MISMATCH` | The account is self-custodied. |
 
 ---
 
-## GET /api/v1/statuses/:id/signing_record
+## GET /api/corundum/v1/statuses/:id/signing_record
 
-Fetch the SigningRecord for a status. Returns the cryptographic proof of authorship: the author's public key, the signature over the activity CID, and the CID of the SigningRecord object itself.
+Fetch the SigningRecord for a status: the detached JWS over the activity's bytes (spec Chapter 12).
 
-**Required scope:** None. This endpoint is intentionally unauthenticated and public. Transparency of authorship proofs is a core Corundum design principle — any client, researcher, or auditor can verify that a status was authored by the claimed identity without needing an account or token.
+**Required scope:** None. Anyone can verify authorship without an account.
 
-**Path parameter:** `:id` — the CID of the status.
+**Path parameter:** `:id` — the activity id of the status.
 
-**Returns:** SigningRecord entity.
+**Returns:** The current SigningRecord's stored bytes, exactly as stored (never re-serialized), with `Content-Type: application/json`. If the activity has been re-signed, this is the SigningRecord named in its StateMap slot; otherwise it is the one named in its archive Entry. The same bytes can be fetched by CID (`corundum.signing_record_cid`) from any IPFS gateway.
 
-```json
-{
-  "activity_cid": "bafyreiemxf5abjwjbikoz4mc3a3dla6ual3jsgpdr4cjr3oz3evfyavhwq",
-  "author_ipns": "k51qzi5uqu5dlvj2baxnqndepeb86cbk3ng6bn9tx0dv7azvq7rjz47q2",
-  "signed_at": "2024-03-10T12:34:56.789Z",
-  "algorithm": "ed25519",
-  "public_key_multibase": "z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
-  "signature_multibase": "zABC123...",
-  "signing_record_cid": "bafyreiabcdef..."
-}
-```
-
-**Verification procedure:** A client that wants to independently verify a status was authored by the claimed account performs the following steps:
-
-1. Fetch the status via `GET /api/v1/statuses/:id`. Note `account.corundum.public_key_multibase`.
-2. Fetch the signing record via `GET /api/v1/statuses/:id/signing_record`. Note `public_key_multibase` and `signature_multibase`.
-3. Confirm that the key in the signing record matches the key declared on the account.
-4. Recompute the CID of the activity content. Confirm it matches `activity_cid`.
-5. Verify the Ed25519 signature in `signature_multibase` over the canonical encoding of `activity_cid` using the public key.
-
-If all five steps pass, authorship is verified without trusting the operator. Step 3 may optionally be extended to resolve the author's DID document and confirm the key is currently declared in the DID, which provides a stronger guarantee in case of key rotation.
+To verify authorship, follow the SigningRecord verification procedure in `02-entities.md`.
 
 **Error responses:**
 
-| HTTP status | Error code | Meaning |
-|-------------|------------|---------|
-| 404 | `not_found` | No status with this CID is known, or its signing record has not been fetched. |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 404 | `NOT_FOUND` | No status with this id is known, or its SigningRecord has not been fetched. |
+| 410 | `GONE` | The author deleted this status. |
 
 ---
 
-## GET /api/v1/statuses/:id/curation
+## Curation labels
 
-Fetch the curation labels applied to a status by curators that this operator or the authenticated user subscribes to.
-
-**Required scope:** None. Unauthenticated requests return labels from the operator's default curator subscriptions. Authenticated requests additionally include labels from curators the authenticated user has personally subscribed to.
-
-**Path parameter:** `:id` — the CID of the status.
-
-**Returns:** Array of CurationLabel entities. Empty array if no labels have been applied.
-
-```json
-[
-  {
-    "curator_id": "k51qzi5...",
-    "curator_display_name": "Safety Curator",
-    "judgment": "spam",
-    "confidence": 0.95,
-    "signed_at": "2024-03-10T14:00:00.000Z",
-    "authority_declaration_cid": "bafyrei...",
-    "appeal_url": "https://curator.example/appeals"
-  }
-]
-```
-
-**Notes:** Labels are produced by independent curators, not by the operator. The operator only serves labels from curators it or its users subscribe to. The presence of a label does not mean the operator endorses the label or has taken any moderation action — it means the curator issued the label and the operator is surfacing it. Clients make their own decisions about how to display or act on labels.
-
-Clients that want to independently verify a label's authenticity should fetch the `authority_declaration_cid` document to obtain the curator's declared public key, then verify the signature on the label using that key.
-
-**Error responses:**
-
-| HTTP status | Error code | Meaning |
-|-------------|------------|---------|
-| 404 | `not_found` | No status with this CID is known to this operator. |
+`GET /api/corundum/v1/statuses/:id/curation` is defined in `11-curation.md`.

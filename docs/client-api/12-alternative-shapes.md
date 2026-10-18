@@ -12,11 +12,11 @@ Before surveying shapes, it helps to name the most important design dimension: *
 
 On traditional federated platforms, the server is the identity. `@alice@social.example` is a row in `social.example`'s database. The server signs things on Alice's behalf because the server *is* Alice, at the protocol level. There is no meaningful distinction between Alice and her operator.
 
-Corundum breaks this conflation. Alice's identity is an Ed25519 keypair. The IPNS name — the hash of the public key — is her stable identifier. Her operator hosts her, but her operator is not her. This creates a design space that does not exist on ActivityPub: the operator can be a dumb relay with no signing authority whatsoever.
+Corundum breaks this conflation. Alice's identity is her DID, and only her update keys, which she holds, can change its document (spec Chapter 5). The DID document names her current content key (her IPNS name), which signs her activities. Her operator hosts her, but her operator is not her: it can stop serving her, but it cannot take the identity. Who holds the *content* key is a separate choice, and it creates a design space that does not exist on ActivityPub: the operator can be a relay with no signing authority whatsoever.
 
-The trust axis runs from **operator-as-notary** (operator holds the key, signs on the user's behalf, can in principle impersonate the user) to **operator-as-relay** (client holds the key, pre-signs content before submission, operator cannot forge anything). Most interesting API designs can be located on this axis.
+The trust axis runs from **operator-as-notary** (operator holds the content key, signs on the user's behalf, can in principle publish in the user's name) to **operator-as-relay** (client holds the content key, pre-signs content before submission, operator cannot forge anything). Most interesting API designs can be located on this axis.
 
-The reference API sits at the operator-as-notary end, which is familiar and works for web clients. The designs below explore other positions.
+The reference API supports both positions, chosen per account (`10-identity-migration.md`, Key Custody). Operator custody is the default, because it is familiar and works for web clients; self-custody uses the end-to-end signed shape described next.
 
 ---
 
@@ -24,47 +24,41 @@ The reference API sits at the operator-as-notary end, which is familiar and work
 
 **Trust position**: operator-as-relay. The operator cannot impersonate the user.
 
-**How it works**: The client holds the Ed25519 private key. Before submitting any content, the client:
+**How it works**: The client holds the Ed25519 content key. Before submitting any content, the client:
 
-1. Constructs the activity object locally
-2. Serializes it to canonical JSON (NFKC-normalized, key-sorted, no insignificant whitespace)
-3. Computes the CID: `SHA256(canonical_json)` encoded as a DAG-JSON CID
-4. Creates the SigningRecord locally: signs `CID || timestamp || author_ipns` with the private key
-5. Submits the activity, its CID, and the SigningRecord to the operator as a package
+1. Constructs the activity object locally, with `attributedTo` set to the user's DID and the next `seq`, and serializes it once. Those bytes are the activity; nothing ever re-serializes them (spec Chapter 33).
+2. Computes the identifier: a CIDv1 with the `raw` codec and a SHA-256 multihash over the exact bytes.
+3. Creates the SigningRecord locally: a detached JWS (`"b64": false`, `corundumType` `"Activity"`) over the exact bytes, one signature per content key in the user's DID document (spec Chapters 12 and 34).
+4. Submits the activity bytes and the SigningRecord to the operator.
+5. Signs the new RootManifest and IPNS record that the operator prepares, because those are signed by the content key too.
 
-The operator receives pre-signed content. It can verify the signature (and should), pin the content in IPFS, update the ArchiveIndex, and relay to other operators — but it cannot produce a valid SigningRecord in the user's name because it does not have the private key.
+The operator receives pre-signed content. It verifies the CID and signatures, pins the content in IPFS, appends it to the archive, and relays it to other operators, but it cannot produce a valid SigningRecord or RootManifest in the user's name because it does not have the content key.
 
-**What the API looks like**: The submission endpoint accepts a bundle rather than raw post text:
+**What the API looks like**: This is the reference API's self-custody mode. The submission endpoint accepts a bundle rather than raw post text, base64url-encoded so that the JSON transport never alters the signed bytes:
 
 ```
-POST /api/v1/activities/submit
+POST /api/corundum/v1/activities
 Content-Type: application/json
 
 {
-  "activity_cid": "bafyreiemxf5...",
-  "activity": { ...canonical activity object... },
-  "signing_record": {
-    "signed_at": "2024-03-10T12:34:56Z",
-    "algorithm": "ed25519",
-    "public_key_multibase": "z6Mk...",
-    "signature_multibase": "zABC..."
-  }
+  "activity": "<base64url of the exact activity bytes>",
+  "signing_record": "<base64url of the SigningRecord bytes>"
 }
 ```
 
-Read endpoints are unchanged — the operator still serves timelines, replies, and profiles. Only the write path fundamentally differs.
+The operator answers with a pending RootManifest for the client to sign and commit (`10-identity-migration.md`). Read endpoints are unchanged: the operator still serves timelines, replies, and profiles. Only the write path differs.
 
 **Advantages**:
 - The operator genuinely cannot forge content. "Trust me, I won't impersonate you" becomes "I couldn't even if I wanted to."
-- Private key never leaves the client device. Operator compromise does not expose the signing key.
+- The content key never leaves the client device. Operator compromise does not expose it.
 - Content authenticity is verifiable by any third party without trusting the operator.
 - Aligns most directly with Corundum's stated goal of removing options that shouldn't exist.
 
 **Disadvantages**:
-- Web clients cannot easily hold private keys. Browsers have `SubtleCrypto` for key storage, but key export/recovery across devices is harder without a server-side component.
-- Canonical JSON serialization must be implemented correctly in every client. The reference implementation provides test vectors; client implementations must be validated against them.
-- Key rotation and recovery are the client's problem. Losing the private key without a backup means losing signing authority. DID-based recovery still works, but the operator cannot help.
-- Session management becomes more complex: the access token authorizes submission to the operator, but the signing key authorizes content on the protocol level. These are different credentials with different lifetimes.
+- Web clients cannot easily hold private keys. Browsers have `SubtleCrypto` for key storage, but key export and recovery across devices is harder without a server-side component.
+- Every write needs a second round trip to sign the RootManifest and IPNS record.
+- Losing the content key means the user must sign a DID update naming a new one; the operator cannot do it for them. Losing the update keys as well is unrecoverable without the offline recovery key (spec Chapter 7).
+- Session management becomes more complex: the access token authorizes submission to the operator, but the content key authorizes content on the protocol level. These are different credentials with different lifetimes.
 
 **Best suited for**: Native mobile apps, desktop apps, power users who want maximum key control, high-security deployments.
 
@@ -72,28 +66,27 @@ Read endpoints are unchanged — the operator still serves timelines, replies, a
 
 ## Shape 2: GraphQL
 
-**Trust position**: operator-as-notary (same as reference API; this is about the API shape, not the trust model — though GraphQL can be combined with E2E signing).
+**Trust position**: either; this is about the API shape, not the trust model. GraphQL can be combined with E2E signing.
 
-**How it works**: Replace the REST endpoint collection with a single GraphQL endpoint. The Corundum entity graph maps naturally to a GraphQL schema: entities have stable IDs (CIDs for content, IPNS names for accounts), relationships are typed and traversable, and the schema self-documents the data model.
+**How it works**: Replace the REST endpoint collection with a single GraphQL endpoint. The Corundum entity graph maps naturally to a GraphQL schema: entities have stable IDs (CIDs for content, DIDs for accounts), relationships are typed and traversable, and the schema self-documents the data model.
 
 A sketch of the core schema:
 
 ```graphql
 type Account {
-  id: ID!              # IPNS name
+  id: ID!              # DID
   username: String!
   displayName: String
-  did: String!
+  ipnsName: String!    # current content key; changes on migration
   operatorEndpoint: String!
   rootManifestCid: String!
-  archiveIndex: ArchiveIndex!
   statuses(first: Int, after: String): StatusConnection!
   followers(first: Int, after: String): AccountConnection!
   following(first: Int, after: String): AccountConnection!
 }
 
 type Status {
-  id: ID!              # CID (base32lower)
+  id: ID!              # activity id (CID of the exact bytes)
   content: String!
   createdAt: DateTime!
   author: Account!
@@ -101,18 +94,20 @@ type Status {
   curationLabels: [CurationLabel!]!
   replies(first: Int, after: String): StatusConnection!
   inReplyTo: Status
-  epoch: Int!
-  sequenceNumber: Int!
+  replaces: Status
+  replacedBy: Status
+  seq: Int!
+  epoch: Int!          # floor(seq / 256): the 256-entry archive chunk
 }
 
-type SigningRecord {
+type SigningRecord {   # detached JWS, spec Chapter 12
   cid: ID!
-  activityCid: String!
-  authorIpns: String!
-  signedAt: DateTime!
-  algorithm: String!
-  publicKeyMultibase: String!
-  signatureMultibase: String!
+  signatures: [JwsSignature!]!
+}
+
+type JwsSignature {
+  protected: String!   # base64url of the protected header
+  signature: String!   # base64url of the signature
 }
 
 type Query {
@@ -138,13 +133,13 @@ type Subscription {
 
 **Advantages**:
 - Clients query exactly the fields they need. A mobile client that never displays curation labels does not receive them.
-- CID-addressed entities fit naturally as GraphQL node IDs. `node(id: "bafyrei...")` is unambiguous globally.
+- CID-addressed entities fit naturally as GraphQL node IDs. `node(id: "<activity id>")` is unambiguous globally.
 - Subscriptions replace polling for real-time feeds without requiring a separate streaming protocol.
 - Schema introspection documents the API for free. Client developers can explore the schema with standard tooling.
-- Corundum-specific fields (`signingRecord`, `curationLabels`, `archiveIndex`) are first-class schema members rather than extension objects bolted onto a Mastodon-shaped response.
+- Corundum-specific fields (`signingRecord`, `curationLabels`, `replacedBy`) are first-class schema members rather than extension objects bolted onto a Mastodon-shaped response.
 
 **Disadvantages**:
-- GraphQL responses are typically POST requests, which breaks HTTP caching. Persisted queries (sending a query hash instead of the full query text) recover some cacheability, but it requires additional infrastructure.
+- GraphQL requests are typically POSTs, which breaks HTTP caching. Persisted queries (sending a query hash instead of the full query text) recover some cacheability, but require additional infrastructure.
 - Complexity cost is real. The reference REST API is easier to implement for a first operator.
 - Mastodon client compatibility is zero. GraphQL and REST are different enough that no shim covers the gap.
 
@@ -162,32 +157,28 @@ type Subscription {
 - **Event**: server pushes matching activities as they arrive
 - **Publish**: client sends a signed event; server relays it and stores it
 
-A Corundum-flavored version of this would use CIDs and IPNS names in place of Nostr's raw pubkeys, and would extend filters to include Corundum-native dimensions:
+A Corundum-flavored version of this would use CIDs and DIDs in place of Nostr's raw pubkeys, and would extend filters to include Corundum-native dimensions:
 
 ```json
 // Client subscribes
 ["REQ", "sub-1",
-  { "authors": ["k51qzi5uqu5dlvj2..."],
-    "kinds": ["Note", "Reply"],
+  { "authors": ["did:webvh:<SCID>:birdsite.example:users:alice"],
+    "kinds": ["Note"],
     "since": 1709000000,
     "limit": 50 }
 ]
 
 // Server pushes events
 ["EVENT", "sub-1",
-  { "cid": "bafyreiemxf5...",
-    "kind": "Note",
-    "author_ipns": "k51qzi5uqu5dlvj2...",
-    "created_at": 1709123456,
-    "content": "Hello, federated world.",
-    "signing_record_cid": "bafyreiabcdef..." }
+  { "id": "<activity id>",
+    "activity": "<base64url of the exact activity bytes>",
+    "signing_record": "<base64url of the SigningRecord bytes>" }
 ]
 
 // Client publishes (pre-signed; E2E model)
 ["PUBLISH",
-  { "cid": "bafyreiemxf5...",
-    "activity": { ... },
-    "signing_record": { ... } }
+  { "activity": "<base64url of the exact activity bytes>",
+    "signing_record": "<base64url of the SigningRecord bytes>" }
 ]
 ```
 
@@ -200,7 +191,7 @@ A Corundum-flavored version of this would use CIDs and IPNS names in place of No
 **Disadvantages**:
 - WebSocket connections are stateful and more complex to scale than stateless HTTP.
 - Query expressiveness is limited by filter design. Complex searches (full-text, ranked feeds) are awkward over a pub/sub protocol.
-- Profile management, key rotation, migration — all the stateful write operations — need either a complementary REST API or protocol extensions.
+- Profile management, DID updates, migration — all the stateful write operations — need either a complementary REST API or protocol extensions.
 - No standard Mastodon compatibility surface.
 
 **Best suited for**: Real-time-first clients, bot operators that subscribe to specific feeds and react to events, read-heavy use cases where the client wants push rather than pull.
@@ -211,25 +202,25 @@ A Corundum-flavored version of this would use CIDs and IPNS names in place of No
 
 **Trust position**: operator-as-notifier only. Content does not flow through the operator on the read path.
 
-**How it works**: The client runs a local IPFS node (or has access to one). The operator's role on the read path shrinks to notification: "new content appeared at CID `bafyrei...` on IPNS name `k51qzi5...`". The client fetches the content directly from IPFS, verifying the CID locally. The operator is never in the content delivery path.
+**How it works**: The client runs a local IPFS node (or has access to one). The operator's role on the read path shrinks to notification: "new content appeared at `<activity id>` in the timeline of `<DID>`". The client fetches the content directly from IPFS, verifying the CID locally. The operator is never in the content delivery path.
 
 The API becomes a thin notification and write relay:
 
 ```
 # Operator notifies client of new content
-WebSocket push:
-{ "type": "new_content", "author_ipns": "k51qzi5...", "cid": "bafyrei...", "sequence": 892 }
+push:
+{ "type": "new_content", "author": "<DID>", "id": "<activity id>", "seq": 1043 }
 
 # Client fetches directly from IPFS (not the operator)
-ipfs get bafyreiemxf5...
+ipfs block get <activity id>
 
-# Client verifies CID matches fetched content (independent of operator)
+# Client verifies the CID matches the fetched bytes (independent of operator)
 
-# Write path still goes through operator for federation
-POST /submit { activity_cid, activity, signing_record }
+# Write path still goes through the operator for federation
+POST /api/corundum/v1/activities { activity, signing_record }
 ```
 
-The operator maintains IPNS resolution, stores follow lists, and handles the inter-operator federation protocol. It does not serve content.
+The operator maintains IPNS records, stores follow lists, and handles the inter-operator federation protocol. It does not serve content.
 
 **Advantages**:
 - The operator cannot censor or modify content on the read path. It can refuse to notify (degraded experience) but cannot alter what the client sees.
@@ -249,31 +240,31 @@ The operator maintains IPNS resolution, stores follow lists, and handles the int
 
 ## Shape 5: CQRS Split
 
-**Trust position**: operator-as-notary; this is an architecture pattern, not a trust model change.
+**Trust position**: either; this is an architecture pattern, not a trust model change.
 
 **How it works**: Separate the write API from the read API entirely, and design each for its actual access pattern.
 
-**Write API** (thin, live): Accepts content submissions, returns CIDs. Does one thing:
+**Write API** (thin, live): Accepts content submissions, returns identifiers. Does one thing:
 
 ```
-POST /write/activity    → { cid: "bafyrei..." }
-POST /write/follow      → { ok: true }
-POST /write/block       → { ok: true }
+POST /write/activity    → { "id": "<activity id>" }
+POST /write/follow      → { "ok": true }
+POST /write/block       → { "ok": true }
 ```
 
-**Read API** (fat, cacheable): Serves pre-computed feed state. Because CIDs are immutable by definition, any response keyed by CID can be cached indefinitely at the CDN layer with no invalidation logic:
+**Read API** (fat, cacheable): Serves pre-computed feed state. Because CIDs name immutable bytes, any response keyed by CID can be cached indefinitely at the CDN layer with no invalidation logic:
 
 ```
-GET /read/status/{cid}           # Immutable. Cache forever.
-GET /read/account/{ipns}/feed    # Mutable. Cache with short TTL or ETag.
-GET /read/account/{ipns}/archive/{epoch_cid}  # Immutable. Cache forever.
+GET /read/status/{activity id}             # Immutable. Cache forever.
+GET /read/account/{DID}/feed               # Mutable. Cache with short TTL or ETag.
+GET /read/account/{DID}/archive/{epoch}    # Immutable once the epoch is finalized. Cache forever.
 ```
 
-The read layer serves pre-serialized JSON blobs keyed by CID. An operator that stores content as CID → canonical JSON in a blob store can put a CDN in front of `/read/status/{cid}` with infinite cache lifetime. Timeline endpoints (which change as new posts arrive) use short TTLs or conditional requests.
+The read layer serves the stored bytes keyed by CID. An operator that stores content as CID → bytes in a blob store can put a CDN in front of `/read/status/{activity id}` with infinite cache lifetime. Timeline endpoints (which change as new posts arrive) use short TTLs or conditional requests. A deleted post must still be purged from the CDN, because the operator stops serving deleted content (spec Chapter 13).
 
 **Advantages**:
-- CID-addressed read endpoints are perfectly cacheable by construction. `GET /read/status/bafyreiemxf5...` will always return the same bytes; any CDN node in the world can serve it.
-- Write path is simple and fast because it does not need to generate response objects. It writes to IPFS, updates indexes, returns a CID.
+- CID-addressed read endpoints are perfectly cacheable by construction. `GET /read/status/<activity id>` always returns the same bytes; any CDN node in the world can serve it.
+- Write path is simple and fast because it does not need to generate response objects. It writes to IPFS, updates indexes, and returns an identifier.
 - Read and write paths can scale independently. A popular account generates heavy read traffic against an immutable CDN; write traffic is low regardless of account popularity.
 - The separation makes the data flow explicit: all mutations go through the write API, all queries go through the read API.
 
@@ -293,9 +284,9 @@ The read layer serves pre-serialized JSON blobs keyed by CID. An operator that s
 **How it works**: AT Protocol (Bluesky) uses XRPC — HTTP with a Lexicon type system for schema definition. Because Corundum and AT Protocol share meaningful architectural DNA (both use DIDs, both use content-addressed data, both have operator-style server nodes), a Corundum operator could expose an XRPC interface and accept clients built for AT Protocol.
 
 The mapping is not clean but it is tractable:
-- AT Protocol `did:plc` identifiers → Corundum IPNS names (both are content-addressed user identifiers)
-- AT Protocol repository CIDs → Corundum activity CIDs (different encoding; same concept)
-- AT Protocol Lexicons → Corundum activity types
+- AT Protocol `did:plc` identifiers → Corundum DIDs, unchanged: Corundum accepts `did:plc` directly (spec Chapter 5), so an account keeps the same identifier on both sides. A Corundum `did:webvh` account has no `did:plc`, and a bridge exposes its `did:webvh` DID, which AT Protocol clients may not accept.
+- AT Protocol repository record CIDs → Corundum activity ids (both content hashes, with different codecs and record formats).
+- AT Protocol Lexicons → Corundum activity types.
 
 A Corundum-to-XRPC bridge would let Bluesky clients (which already have a substantial developer ecosystem) connect to Corundum operators with no code changes.
 
@@ -305,7 +296,7 @@ A Corundum-to-XRPC bridge would let Bluesky clients (which already have a substa
 - Forces documentation of which Corundum concepts have no AT Protocol equivalent, which clarifies where the two protocols actually differ.
 
 **Disadvantages**:
-- AT Protocol XRPC ties the client API surface to AT Protocol's Lexicon evolution. Corundum-native features (signing transparency, curation authority declarations, GDPR tombstones) would appear as XRPC extensions that Bluesky clients ignore.
+- AT Protocol XRPC ties the client API surface to AT Protocol's Lexicon evolution. Corundum-native features (signing transparency, curation authority declarations, `Delete` activities that stop operators serving content) would appear as XRPC extensions that Bluesky clients ignore.
 - Full fidelity is not achievable. A Bluesky client over an XRPC bridge cannot access Corundum's identity migration flow or curation layer.
 - Maintenance burden: keeping a Lexicon shim current with AT Protocol's evolution is ongoing work.
 
@@ -332,7 +323,7 @@ These shapes are not mutually exclusive. Some combinations are particularly natu
 | If you want... | Consider... |
 |----------------|-------------|
 | Familiarity for client developers | Reference REST API (`00-design.md` and siblings) |
-| Maximum operator trust reduction | E2E Signing |
+| Maximum operator trust reduction | E2E Signing (the reference API's self-custody mode) |
 | Tight data fetching control, self-documenting schema | GraphQL |
 | Real-time push, simplicity, bot-friendly | Nostr-style relay |
 | CDN cacheability, high read volume | CQRS split |

@@ -2,13 +2,15 @@
   "id": "CORUNDUM-esol.15",
   "title": "Fix client API drift",
   "description": "docs/client-api. Account id should be DID (spec MUST) not IPNS name; epoch redefined as rotation counter; SigningRecord shape and signing payload defined 3 ways; extension fields top-level vs nested corundum key; duplicate /statuses/:id/curation with incompatible shapes; curation path mismatch; missing scopes and error codes; media id = bytes CID breaks ownership; README:29 says shim out of scope; shim: no native stream endpoint, /api/v1 collision, arrival-order IDs sort backfill as newest, edits need same id + status.update. Root README/spec 14 should point at client-api as non-normative.",
-  "status": "open",
+  "status": "closed",
   "priority": 3,
   "issue_type": "bug",
   "owner": "mark@reviewcommit.com",
   "created_at": "2026-10-18T16:43:43.547150613Z",
   "created_by": "agent",
-  "updated_at": "2026-10-18T16:43:43.547150613Z",
+  "updated_at": "2026-10-18T17:29:27.836537383Z",
+  "closed_at": "2026-10-18T17:29:27.836537383Z",
+  "close_reason": "client-api aligned: DID account ids (percent-encoded), native API under /api/corundum/v1, shim owns /api/v1, JWS SigningRecord, two custody modes, client-signed DID updates, edits/deletes as activities, corundum:Error + Ch 38 cursors, scopes/codes complete, media id vs CID, public-only visibility, shim snowflakes from published time.",
   "dependencies": [
     {
       "issue_id": "CORUNDUM-esol.15",

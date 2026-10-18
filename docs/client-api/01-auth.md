@@ -1,6 +1,6 @@
 # Authentication
 
-Corundum operators use OAuth 2.0 with the PKCE extension for client authentication. All API endpoints that operate on user data require a Bearer token obtained through this flow.
+Corundum operators use OAuth 2.0 with the PKCE extension for client authentication. All API endpoints that operate on user data require a Bearer token obtained through this flow. The operator runs one authorization server at `/oauth/`; its tokens are accepted both by this API (`/api/corundum/v1/`) and by the Mastodon shim (`13-mastodon-shim.md`).
 
 ## Why OAuth 2.0 + PKCE
 
@@ -14,7 +14,7 @@ PKCE is well-supported in OAuth libraries across all major platforms. Operators 
 
 Before a client application can request authorization, it must register with the operator. Registration is a one-time step per operator.
 
-### `POST /api/v1/apps`
+### `POST /api/corundum/v1/apps`
 
 No authentication required.
 
@@ -53,21 +53,30 @@ Scopes limit what an access token can do. Clients should request the minimum sco
 | Scope | Access Granted |
 |-------|----------------|
 | `read` | Read all data (shorthand for all `read:*` scopes) |
-| `read:statuses` | Read statuses and timelines |
+| `read:statuses` | Read statuses, timelines, and search results |
 | `read:accounts` | Read account profiles and relationships |
-| `read:notifications` | Read notifications |
-| `read:identity` | Read DID document, IPNS name, and signing records |
+| `read:follows` | Read follow requests and the user's own following list |
+| `read:blocks` | Read the user's block list |
+| `read:mutes` | Read the user's mute list |
+| `read:notifications` | Read notifications and open the event stream's notification topic |
+| `read:identity` | Read the user's identity record, DID state, and RootManifest |
 | `write` | Write all data (shorthand for all `write:*` scopes) |
-| `write:statuses` | Post, edit, and delete statuses |
+| `write:statuses` | Post, edit, delete, and boost statuses; submit client-signed activities |
+| `write:favourites` | Favourite and unfavourite statuses |
 | `write:accounts` | Update profile fields and preferences |
-| `write:follows` | Follow and unfollow accounts |
+| `write:follows` | Follow and unfollow accounts; authorize and reject follow requests |
 | `write:blocks` | Block and unblock accounts |
-| `write:media` | Upload media attachments |
-| `write:identity` | Key rotation and identity migration operations |
-| `admin:read` | Read operator-level data (moderation queue, federation policy, operator logs) |
-| `admin:write` | Operator-level actions (federation decisions, forced content removal, operator configuration) |
+| `write:mutes` | Mute and unmute accounts |
+| `write:media` | Upload and update media attachments |
+| `write:notifications` | Clear and dismiss notifications |
+| `write:identity` | Content-key rotation, DID update relay, RootManifest commits, migration and export |
+| `write:curation` | Submit curation appeals |
+| `admin:read` | Read operator-level data (curation subscriptions and policy, moderation queue, federation policy) |
+| `admin:write` | Change operator-level state (curation subscriptions and policy, federation decisions, operator configuration) |
 
-`read` grants all `read:*` scopes. `write` grants all `write:*` scopes. Granting `write` does not grant `admin:read` or `admin:write`; admin scopes must be requested explicitly and are only grantable to users with operator-level accounts.
+`read` grants all `read:*` scopes. `write` grants all `write:*` scopes. Neither grants `admin:read` or `admin:write`; admin scopes must be requested explicitly and are grantable only to operator administrators. `admin:write` does not imply `admin:read`, so every admin `GET` requires `admin:read` and every admin change requires `admin:write`.
+
+No scope lets the operator act with the user's DID update keys: those are never given to the operator (`10-identity-migration.md`). `write:identity` only lets the client ask the operator to relay updates the client has already signed.
 
 ---
 
@@ -188,8 +197,12 @@ HTTP/1.1 401 Unauthorized
 ```
 ```json
 {
-  "error": "unauthorized",
-  "error_description": "The access token is invalid or has been revoked"
+  "@type": "corundum:Error",
+  "code": "UNAUTHORIZED",
+  "message": "The access token is invalid or has been revoked",
+  "httpStatus": 401,
+  "retryable": false,
+  "details": {}
 }
 ```
 
@@ -216,7 +229,7 @@ Revocation always returns `200 OK` even if the token was already revoked or was 
 
 ## Instance Info
 
-### `GET /api/v1/instance`
+### `GET /api/corundum/v1/instance`
 
 No authentication required. Returns information about the operator.
 
@@ -230,12 +243,14 @@ No authentication required. Returns information about the operator.
   "version": "corundum/1.0.0",
   "corundum": {
     "protocol_version": "1.0",
-    "operator_did": "did:web:birdsite.example",
     "operator_endpoint": "https://birdsite.example",
-    "supported_algorithms": ["Ed25519"]
+    "operator_manifest_url": "https://birdsite.example/.well-known/corundum-operator",
+    "ipfs_gateway": "https://birdsite.example/ipfs/",
+    "supported_algorithms": ["Ed25519"],
+    "key_custody_modes": ["operator", "self"]
   },
   "contact_account": {
-    "ipns_name": "k51qzi5uqu5dj4nl2xvwya5k4y6a4xy9jh0jrh5e5c5w0n9i7r3i4j8fmq4gh",
+    "id": "did:webvh:<SCID>:birdsite.example:users:admin",
     "acct": "admin@birdsite.example"
   },
   "rules": []
@@ -249,10 +264,12 @@ No authentication required. Returns information about the operator.
 | `description` | Short description of this operator. |
 | `version` | Software version string. Format: `corundum/<semver>`. |
 | `corundum.protocol_version` | Corundum protocol version implemented by this operator. |
-| `corundum.operator_did` | The operator's own DID. Used to verify the operator's signed artifacts. |
-| `corundum.operator_endpoint` | Canonical base URL for this operator's API. |
-| `corundum.supported_algorithms` | List of signing algorithms accepted for user content. Currently `["Ed25519"]`. |
-| `contact_account` | The operator's administrative contact account. `ipns_name` is the stable Corundum identifier; `acct` is the human-readable handle. |
+| `corundum.operator_endpoint` | The operator's origin, the value its users' DID documents carry as `operatorEndpoint` (spec Chapter 6). |
+| `corundum.operator_manifest_url` | Where the operator's signed Operator Manifest, which lists its keys, is served (spec Chapter 18). Operators are identified by origin, not by a DID. |
+| `corundum.ipfs_gateway` | Base URL of the operator's IPFS gateway. Activity, SigningRecord, and media bytes can be fetched as `<gateway><cid>`. |
+| `corundum.supported_algorithms` | JOSE `alg` values accepted for user content signatures (spec Chapter 36). |
+| `corundum.key_custody_modes` | Key custody modes this operator offers (`10-identity-migration.md`). |
+| `contact_account` | The operator's administrative contact account. `id` is its DID; `acct` is the human-readable handle. |
 | `rules` | Array of content rules published by this operator. Each entry has `id` (string) and `text` (string). May be empty. |
 
-This endpoint is used by clients to discover what software and protocol version an operator runs before initiating the authorization flow. It corresponds to the Mastodon `GET /api/v1/instance` endpoint with the addition of the `corundum` object.
+Clients use this endpoint to discover what software, protocol version, and custody modes an operator offers before starting the authorization flow. It corresponds to Mastodon's `GET /api/v1/instance`, which the shim serves separately.

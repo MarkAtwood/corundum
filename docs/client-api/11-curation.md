@@ -1,179 +1,172 @@
 # Curation
 
-Corundum's curation layer separates the act of making content judgments from the act of hosting content. Curators are independent entities — organizations, research groups, or specialized services — that publish signed feeds of content judgments. Operators subscribe to curator feeds and apply those judgments according to their own policy. This API exposes the curation layer to clients and to operator administrators.
+Corundum's curation layer separates the act of making content judgments from the act of hosting content. Curators are independent entities — organizations, research groups, or specialized services — that publish signed feeds of content judgments (spec Chapters 27–32). Operators subscribe to curator feeds and apply those judgments according to their own policy. This API exposes the curation layer to clients and to operator administrators.
 
 This section has no Mastodon analogue.
 
 ## Concepts
 
-**Curator:** An independent entity that publishes signed feeds of content judgments. Each curator has a stable IPNS name and an authority declaration: a signed document that describes the curator's scope, the categories of content it judges, and the governance and appeals processes it provides.
+**Curator:** An independent entity that publishes signed `CurationEntry` objects about content, identified by content hash (spec Chapter 28). A curator is identified by the URL of its Authority Declaration, called its **authority** (the declaration's `id`, and the `authority` field of every entry it issues). Curators are not Corundum user identities and have no DID or IPNS name.
 
-**Authority declaration:** A signed document published by the curator in IPFS that defines the curator's mandate. Operators and users can verify any curator judgment by checking it against the published authority declaration. The CID of the authority declaration is the stable reference for the curator's claimed authority.
+**Authority Declaration:** An attached JWS (spec Chapter 34, `corundumType` `"AuthorityDeclaration"`) served at the authority URL. It names the curator's keys and delegate keys, organization, jurisdiction claims, governance model, appeal process, hash capabilities, and feed access (spec Chapter 30).
 
-**CurationLabel:** A signed judgment applied to a specific content CID. Labels carry a category (e.g., `csam`, `spam`, `misinformation`), a confidence level, and a reference to the authority declaration that backs the judgment. Labels are independently verifiable: any party can re-check the signature.
+**CurationEntry:** One signed judgment: one or more content-hash subjects, a `reason` from the spec's taxonomy (`category/subcode`, e.g. `spam/spam-commercial`), and an `ordinal` from `0.0` to `1.0` giving its strength. Entries carry a feed `sequence` number, and may `expire` or `supersede` an earlier entry. An entry at ordinal `0.0` retracts the entry it supersedes (spec Chapter 29).
 
-**Operator policy:** Each operator configures which curators it subscribes to and what action to take for each label category. The policy options are `label` (show the content with a label attached), `warn` (interstitial warning before showing), or `block` (do not serve the content at all). Some categories (e.g., `csam`) are expected to always be blocked; operator policy cannot override legal obligations.
+**CurationLabel:** This API's projection of a CurationEntry that matches a particular status, together with the action this operator takes on it (`02-entities.md`). It carries the entry's JWS line verbatim, so a client can verify the curator's signature itself.
+
+**Operator policy:** Each operator chooses which curators it subscribes to and, for each reason category, the ordinal thresholds at which it labels, warns, or blocks. The actions are `label` (show the content with a label), `warn` (interstitial warning before showing), and `block` (do not serve the content). Thresholds are always greater than `0.0`, so a retraction never matches a rule.
+
+**Restricted feeds.** Some feeds, such as `legal/*` child-safety hash lists, are readable only by operators the curator has admitted, and are fetched with RFC 9421-authenticated requests (spec Chapter 32). This API never exposes the contents of a restricted feed to clients; a client sees only the labels that apply to statuses it can see, subject to the operator's policy.
+
+Path parameters named `:authority` are the authority URL, percent-encoded as one path segment (`00-design.md`, Identifiers). For example, `https://curator.example/.well-known/corundum-curator` becomes `https%3A%2F%2Fcurator.example%2F.well-known%2Fcorundum-curator`.
 
 ---
 
 ## Client Endpoints
 
-### GET /api/v1/corundum/curators
+### GET /api/corundum/v1/curation/curators
 
-List the curator feeds this operator subscribes to.
+List the curators this operator subscribes to.
 
 **Authentication:** Optional. The subscription list is public; any client may retrieve it.
 
-**Returns:** Array of curator objects.
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `cursor` | string | — | Opaque pagination cursor (`00-design.md`, Pagination) |
+| `limit` | integer | 40 | Maximum number of results (max 80) |
+
+**Returns:** PaginatedResponse of curator objects.
+
+```json
+{
+  "@type": "corundum:PaginatedResponse",
+  "items": [
+    {
+      "authority": "https://curator.example/.well-known/corundum-curator",
+      "display_name": "Example Spam Curator",
+      "reasons": ["spam/spam-commercial", "spam/spam-phishing"],
+      "feed_access": "public",
+      "subscribed_since": "2025-01-01T00:00:00Z",
+      "last_polled": "2025-03-10T12:00:00Z",
+      "latest_sequence": 48293,
+      "governance_url": "https://curator.example/governance",
+      "appeal_url": "https://curator.example/appeals"
+    }
+  ],
+  "pagination": { "limit": 40 }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `authority` | string | The curator's Authority Declaration URL. Stable identifier. |
+| `display_name` | string | The organization name from the declaration. |
+| `reasons` | array of strings | The reasons this operator ingests from this curator, as `category/subcode` strings. |
+| `feed_access` | string | `public` or `restricted`, as declared. |
+| `subscribed_since` | string (ISO 8601) | When this operator began subscribing to this curator's feed. |
+| `last_polled` | string (ISO 8601) | When this operator last fetched the curator's feed. |
+| `latest_sequence` | integer | Highest feed `sequence` this operator has processed. |
+| `governance_url` | string | The declaration's governance model link. |
+| `appeal_url` | string | The declaration's appeal process link. |
+
+---
+
+### GET /api/corundum/v1/curation/curators/:authority
+
+Get a single subscribed curator.
+
+**Authentication:** Optional.
+
+**Path Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `:authority` | The curator's authority URL, percent-encoded |
+
+**Returns:** Curator object (same shape as the list items).
+
+**Errors:**
+
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 404 | `NOT_FOUND` | This operator does not subscribe to a curator with this authority |
+
+---
+
+### GET /api/corundum/v1/curation/curators/:authority/declaration
+
+Get the curator's Authority Declaration as this operator last fetched and verified it.
+
+**Authentication:** Optional.
+
+**Path Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `:authority` | The curator's authority URL, percent-encoded |
+
+**Returns:** The stored attached-JWS bytes, exactly as served at the authority URL, with `Content-Type: application/jose+json`. The operator never re-serializes them, so a client can verify the signatures itself (spec Chapter 34) or compare them with a copy fetched from the authority URL directly.
+
+**Errors:**
+
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 404 | `NOT_FOUND` | This operator does not subscribe to a curator with this authority |
+
+---
+
+### GET /api/corundum/v1/statuses/:id/curation
+
+Get the curation labels that apply to a status. This is the only definition of this endpoint; `03-statuses.md` refers here.
+
+**Authentication:** Optional. Unauthenticated requests return labels from the operator's own subscriptions. Authenticated requests may additionally include labels from curators the user has subscribed to, where the operator offers personal subscriptions.
+
+**Path Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `:id` | The activity id of the status |
+
+**Returns:** Array of CurationLabel entities (`02-entities.md`). An empty array means no subscribed curator has an unexpired, non-retracted entry matching this content. Superseded entries are not returned; only the entry that supersedes them is.
 
 ```json
 [
   {
-    "curator_id": "k51qzi5uqu5dh9ihj4p2v5sl3hxvv27ryx2w0xrsv6jmmui2qbv7bhg4c1jbdx",
-    "display_name": "CSAM Hash Database",
-    "authority_declaration_cid": "bafyreiabcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopq",
-    "authority_declaration_url": "https://curator.example/authority",
-    "judgment_categories": ["csam"],
-    "subscribed_since": "2024-01-01T00:00:00Z",
-    "last_polled": "2024-03-10T12:00:00Z",
-    "entry_count": 150000,
-    "governance_url": "https://curator.example/governance",
+    "authority": "https://curator.example/.well-known/corundum-curator",
+    "curator_display_name": "Example Spam Curator",
+    "sequence": 48293,
+    "reason": "spam/spam-commercial",
+    "ordinal": 0.85,
+    "issued": "2025-01-15T12:34:56Z",
+    "expires": null,
+    "matched_subject": { "hash_type": "sha256", "hash_scope": "text-exact" },
+    "entry": "<the CurationEntry JWS line, verbatim>",
+    "operator_action": "label",
     "appeal_url": "https://curator.example/appeals"
   }
 ]
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `curator_id` | string | The curator's IPNS name (base36lower). Stable identifier. |
-| `display_name` | string | Human-readable name for the curator feed. |
-| `authority_declaration_cid` | string | CID of the curator's authority declaration document in IPFS. |
-| `authority_declaration_url` | string | HTTP URL where the authority declaration can be retrieved. |
-| `judgment_categories` | array of strings | The label categories this curator issues, e.g. `["csam", "spam"]`. |
-| `subscribed_since` | string (ISO 8601) | When this operator began subscribing to this curator's feed. |
-| `last_polled` | string (ISO 8601) | When this operator last fetched an updated feed from this curator. |
-| `entry_count` | integer | Number of active judgment entries currently in this curator's feed as known to this operator. |
-| `governance_url` | string | URL of the curator's governance documentation. |
-| `appeal_url` | string | URL of the curator's appeals process. |
+A label is the curator's judgment; `operator_action` is this operator's decision about it under its policy. Neither binds any other operator. A label with `operator_action` `block` is returned only to the status's author and to administrators, since the content itself is not served to anyone else.
 
----
-
-### GET /api/v1/corundum/curators/:curator_id
-
-Get the full details for a single curator feed.
-
-**Authentication:** Optional.
-
-**Path Parameters:**
-
-| Parameter | Description |
-|-----------|-------------|
-| `:curator_id` | The curator's IPNS name (base36lower) |
-
-**Returns:** Curator object (same shape as array entries from the list endpoint), with no additional fields. The authority declaration summary is accessible via the `authority_declaration_cid` and `authority_declaration_url` fields; the full document is returned by `GET /api/v1/corundum/curators/:curator_id/authority`.
+To verify a label, decode `entry` (an attached JWS, `corundumType` `"CurationEntry"`), check its signatures against the keys in the curator's Authority Declaration (spec Chapter 34 and the CurationEntry wire format in spec Chapter 32), and check that the subject hash matches the content.
 
 **Errors:**
 
-| Code | Error | Description |
-|------|-------|-------------|
-| 404 | `not_found` | This operator does not subscribe to a curator with this ID |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 404 | `NOT_FOUND` | No status with this id is known to this operator |
+| 410 | `GONE` | The status has been deleted |
 
 ---
 
-### GET /api/v1/corundum/curators/:curator_id/authority
+### POST /api/corundum/v1/curation/appeals
 
-Get the full authority declaration published by a curator.
+Submit an appeal against a label. The operator forwards the appeal to the appeal process declared in the curator's Authority Declaration on the user's behalf.
 
-**Authentication:** Optional.
-
-**Path Parameters:**
-
-| Parameter | Description |
-|-----------|-------------|
-| `:curator_id` | The curator's IPNS name (base36lower) |
-
-**Returns:** The authority declaration object as published by the curator in IPFS. The exact structure is defined in the Corundum curation specification. The response includes the raw declaration and its CID so the client can independently verify the content matches the declared CID.
-
-```json
-{
-  "cid": "bafyreiabcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopq",
-  "declaration": {
-    "curator_ipns_name": "k51qzi5...",
-    "display_name": "CSAM Hash Database",
-    "version": 1,
-    "categories": ["csam"],
-    "scope": "...",
-    "governance_url": "https://curator.example/governance",
-    "appeal_url": "https://curator.example/appeals",
-    "signed_at": "2024-01-01T00:00:00Z",
-    "signature": "..."
-  }
-}
-```
-
-**Errors:**
-
-| Code | Error | Description |
-|------|-------|-------------|
-| 404 | `not_found` | This operator does not subscribe to a curator with this ID |
-
----
-
-### GET /api/v1/statuses/:id/curation
-
-Get the curation labels applied to a status by any subscribed curator.
-
-**Authentication:** Optional.
-
-**Path Parameters:**
-
-| Parameter | Description |
-|-----------|-------------|
-| `:id` | The CID of the status (base32lower) |
-
-**Returns:** Array of CurationLabel entities. An empty array means no subscribed curator has issued a judgment against this content.
-
-```json
-[
-  {
-    "label_id": "bafyreicuration...",
-    "curator_id": "k51qzi5...",
-    "curator_display_name": "Spam Detection Service",
-    "status_cid": "bafyreib4gy7...",
-    "category": "spam",
-    "confidence": 0.97,
-    "authority_declaration_cid": "bafyreiabcdef...",
-    "issued_at": "2024-03-09T08:00:00Z",
-    "operator_action": "label"
-  }
-]
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `label_id` | string | CID of the CurationLabel object in IPFS. Uniquely identifies this specific judgment. |
-| `curator_id` | string | IPNS name of the curator that issued this label. |
-| `curator_display_name` | string | Human-readable name of the curator. |
-| `status_cid` | string | CID of the content this label applies to. |
-| `category` | string | Label category, e.g. `csam`, `spam`, `misinformation`. |
-| `confidence` | number | Curator's confidence score, in the range `0.0` to `1.0`. Meaning is curator-defined; consult the authority declaration. |
-| `authority_declaration_cid` | string | CID of the authority declaration that backs this judgment. Clients can verify the label is within the curator's declared scope. |
-| `issued_at` | string (ISO 8601) | When the curator issued this label. |
-| `operator_action` | string | The action this operator is taking based on its policy: `label`, `warn`, or `block`. A `block` response means the client received this information via an admin or transparency endpoint; the content itself would normally not be served. |
-
-**Errors:**
-
-| Code | Error | Description |
-|------|-------|-------------|
-| 404 | `not_found` | No status with this CID is known to this operator |
-
----
-
-### POST /api/v1/corundum/curation/appeal
-
-Submit an appeal against a curation label. The operator forwards the appeal to the curator's appeals endpoint on the user's behalf.
-
-**Authentication:** Required.
+**Authentication:** Required (`write:curation` scope).
 
 **Content-Type:** `application/json`
 
@@ -181,45 +174,47 @@ Submit an appeal against a curation label. The operator forwards the appeal to t
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `status_id` | string | yes | CID of the status the label was applied to |
-| `curator_id` | string | yes | IPNS name of the curator that issued the label |
+| `status_id` | string | yes | Activity id of the labeled status |
+| `authority` | string | yes | Authority URL of the curator that issued the entry |
+| `sequence` | integer | yes | Feed sequence number of the entry being appealed |
 | `appeal_text` | string | yes | The user's appeal statement |
 
-**Behavior:** The operator constructs an appeal submission and delivers it to the `appeal_url` declared in the curator's authority declaration. The appeal is associated with the authenticated user's account. The operator does not modify its local curation state as a result of this call; the label remains in place until the curator issues an updated judgment.
+**Behavior:** The operator delivers the appeal to the curator's declared appeal process. It does not change its own curation state as a result; the label stays until the curator publishes an entry that supersedes or retracts it.
 
 **Returns:**
 
 ```json
 {
-  "appeal_id": "8f3a92c1",
-  "appeal_url": "https://curator.example/appeals/8f3a92c1",
-  "submitted_at": "2024-03-10T15:00:00Z"
+  "appeal_id": "<curator-assigned appeal id>",
+  "appeal_url": "https://curator.example/appeals/<curator-assigned appeal id>",
+  "submitted_at": "2025-03-10T15:00:00Z"
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `appeal_id` | string | The ID assigned to this appeal by the curator's appeals system. |
-| `appeal_url` | string | URL where the user can track the appeal status. |
+| `appeal_id` | string | The id the curator's appeal system assigned. |
+| `appeal_url` | string | URL where the user can track the appeal. |
 | `submitted_at` | string (ISO 8601) | When the appeal was submitted. |
 
 **Errors:**
 
-| Code | Error | Description |
-|------|-------|-------------|
-| 400 | `no_label_found` | No active label from the specified curator applies to the specified status |
-| 404 | `curator_not_found` | This operator does not subscribe to a curator with the given ID |
-| 502 | `appeal_endpoint_unavailable` | The curator's appeals endpoint could not be reached |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 401 | `UNAUTHORIZED` | No valid token provided |
+| 403 | `INSUFFICIENT_SCOPE` | Token lacks `write:curation` scope |
+| 404 | `NOT_FOUND` | No subscribed curator with this authority, or no active entry with this sequence applies to this status |
+| 502 | `UPSTREAM_UNAVAILABLE` | The curator's appeal endpoint could not be reached |
 
 ---
 
 ## Admin Endpoints
 
-These endpoints require `admin:write` scope and are restricted to operator administrators. They are not available to ordinary user tokens.
+These endpoints are restricted to operator administrators. Reads require `admin:read`; changes require `admin:write`.
 
-### POST /api/v1/admin/corundum/curators
+### POST /api/corundum/v1/admin/curation/curators
 
-Subscribe to a new curator feed.
+Subscribe to a curator.
 
 **Authentication:** Required (`admin:write` scope)
 
@@ -229,25 +224,27 @@ Subscribe to a new curator feed.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `curator_endpoint` | string | yes | HTTPS URL of the curator's feed endpoint |
-| `auto_enforce` | boolean | yes | If `true`, the operator will automatically apply this curator's judgments according to the operator's curation policy. If `false`, labels are recorded but no enforcement action is taken. |
-| `categories` | array of strings | no | Restrict subscription to these label categories. If omitted, all categories published by this curator are ingested. |
+| `authority` | string | yes | The curator's Authority Declaration URL |
+| `reasons` | array of strings | no | Restrict ingestion to these reasons; `category/*` matches a whole category. If omitted, every reason the curator issues is ingested. |
 
-**Returns:** Curator object for the newly subscribed feed.
+For a restricted feed, the curator must already have admitted this operator; the operator fetches the feed with RFC 9421-authenticated requests (spec Chapter 32).
+
+**Returns:** Curator object for the new subscription.
 
 **Errors:**
 
-| Code | Error | Description |
-|------|-------|-------------|
-| 409 | `already_subscribed` | This operator already subscribes to this curator |
-| 422 | `invalid_authority_declaration` | The curator's authority declaration could not be fetched or its signature is invalid |
-| 502 | `curator_endpoint_unavailable` | The curator feed endpoint could not be reached |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 400 | `CURATION_AUTHORITY_INVALID` | The Authority Declaration is invalid, its signatures do not verify, or it does not match its fetch URL |
+| 403 | `FORBIDDEN` | The feed is restricted and the curator has not admitted this operator |
+| 409 | `ALREADY_SUBSCRIBED` | This operator already subscribes to this curator |
+| 502 | `UPSTREAM_UNAVAILABLE` | The authority URL or feed could not be reached |
 
 ---
 
-### DELETE /api/v1/admin/corundum/curators/:curator_id
+### DELETE /api/corundum/v1/admin/curation/curators/:authority
 
-Unsubscribe from a curator feed. Existing labels already applied to content are not retroactively removed; they remain in the local store but are no longer used for enforcement.
+Unsubscribe from a curator. The operator stops applying the curator's entries; labels derived from them are no longer returned or enforced.
 
 **Authentication:** Required (`admin:write` scope)
 
@@ -255,58 +252,61 @@ Unsubscribe from a curator feed. Existing labels already applied to content are 
 
 | Parameter | Description |
 |-----------|-------------|
-| `:curator_id` | The curator's IPNS name (base36lower) |
+| `:authority` | The curator's authority URL, percent-encoded |
 
 **Returns:** `204 No Content` on success.
 
 **Errors:**
 
-| Code | Error | Description |
-|------|-------|-------------|
-| 404 | `not_found` | This operator does not subscribe to a curator with this ID |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 404 | `NOT_FOUND` | This operator does not subscribe to a curator with this authority |
 
 ---
 
-### GET /api/v1/admin/corundum/curation/policy
+### GET /api/corundum/v1/admin/curation/policy
 
-Get the operator's current curation enforcement policy.
+Get the operator's current curation policy.
 
-**Authentication:** Required (`admin:write` scope)
+**Authentication:** Required (`admin:read` scope)
 
 **Returns:**
 
 ```json
 {
-  "enforce_csam": true,
-  "enforce_spam": false,
-  "default_action": "label",
-  "hard_block_categories": ["csam"]
+  "rules": [
+    { "reason": "legal/*", "action": "block", "min_ordinal": 0.5 },
+    { "reason": "spam/*", "action": "block", "min_ordinal": 0.9 },
+    { "reason": "spam/*", "action": "label", "min_ordinal": 0.7 },
+    { "reason": "nsfw/*", "action": "warn", "min_ordinal": 0.6 }
+  ],
+  "default_action": "label"
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `enforce_csam` | boolean | Whether CSAM labels from subscribed curators result in enforcement action. |
-| `enforce_spam` | boolean | Whether spam labels from subscribed curators result in enforcement action. |
-| `default_action` | string | The default action taken for labeled content not covered by a specific rule: `label`, `warn`, or `block`. |
-| `hard_block_categories` | array of strings | Categories for which content is always blocked, regardless of other policy settings. Operators must include `csam` in this list. |
+| `rules` | array | Policy rules. Each has a `reason` (a `category/subcode`, or `category/*` for a whole category), an `action` (`label`, `warn`, or `block`), and a `min_ordinal` greater than `0.0` and at most `1.0`. A matching entry triggers the rule when its `ordinal` is at least `min_ordinal`. When several rules trigger, the strongest action applies (`block` over `warn` over `label`). |
+| `default_action` | string | Action for an entry from a subscribed curator that no rule covers: `label`, `warn`, or `block`. Entries at ordinal `0.0` never trigger it. |
+
+How an operator handles legally mandated categories, such as reporting and preserving apparent CSAM, depends on its jurisdiction and is outside this API (spec Chapters 29 and 39).
 
 ---
 
-### PUT /api/v1/admin/corundum/curation/policy
+### PUT /api/corundum/v1/admin/curation/policy
 
-Update the operator's curation enforcement policy.
+Replace the operator's curation policy.
 
 **Authentication:** Required (`admin:write` scope)
 
 **Content-Type:** `application/json`
 
-**Request Body:** Same fields as the GET response. All fields are optional; only provided fields are updated.
+**Request Body:** A complete policy object, same shape as the GET response.
 
-**Returns:** The full updated policy object (same shape as GET response).
+**Returns:** The updated policy object.
 
 **Errors:**
 
-| Code | Error | Description |
-|------|-------|-------------|
-| 422 | `invalid_policy` | The policy is internally inconsistent (e.g., `hard_block_categories` does not include `csam`, which is required). |
+| HTTP status | Code | Meaning |
+|-------------|------|---------|
+| 422 | `VALIDATION_FAILED` | A rule names an unknown reason or action, or a `min_ordinal` is not greater than `0.0` or exceeds `1.0` |
