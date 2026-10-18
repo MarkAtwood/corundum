@@ -1,0 +1,22 @@
+{
+  "id": "CORUNDUM-esol.4",
+  "title": "Rewrite signing and ids per D4",
+  "description": "Ch 11-12 (04-content-storage), Ch 33-36 (10-crypto). One detached SigningRecord as JWS; protected header carries a Corundum type member (domain separation); kid = DID URL / IPNS key binding. id = raw CID of stored bytes; never re-serialize (normative); no in-object id. Delete Canonical JSON/NFKC/timestamp/null rules and Ch 34 embedded-signature procedure. Ed25519 verification profile (strict RFC 8032 vs ZIP-215; S\u003cL; canonical A/R). Downgrade rule: ratchet, judge at signing time. Historical validity needs external time anchor (manifest chain), not signer's own ts. PQ names: ML-DSA (FIPS 204), SLH-DSA (FIPS 205), FN-DSA; pin params. Delete invented RSA/DSA/SHA-1 sunset history. Unify ed25519 vs ed25519-v1 and base64 vs base64url.",
+  "status": "open",
+  "priority": 1,
+  "issue_type": "feature",
+  "owner": "mark@reviewcommit.com",
+  "created_at": "2026-10-18T16:43:42.97758661Z",
+  "created_by": "agent",
+  "updated_at": "2026-10-18T16:43:42.97758661Z",
+  "dependencies": [
+    {
+      "issue_id": "CORUNDUM-esol.4",
+      "depends_on_id": "CORUNDUM-esol",
+      "type": "parent-child",
+      "created_at": "2026-10-18T16:43:42.986236049Z",
+      "created_by": "agent",
+      "metadata": "{}"
+    }
+  ]
+}

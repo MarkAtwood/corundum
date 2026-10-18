@@ -1,0 +1,22 @@
+{
+  "id": "CORUNDUM-esol.2",
+  "title": "Fix duplicate Chapter 36 and doc index",
+  "description": "10-crypto.md and 11-event-streams.md both start Chapter 36; renumber 11 onward. README and corundum-book.md omit 16-interop-streams.md. Add a BCP 14 (RFC 2119/8174) conventions statement to the preface.",
+  "status": "open",
+  "priority": 2,
+  "issue_type": "bug",
+  "owner": "mark@reviewcommit.com",
+  "created_at": "2026-10-18T16:43:42.873717889Z",
+  "created_by": "agent",
+  "updated_at": "2026-10-18T16:43:42.873717889Z",
+  "dependencies": [
+    {
+      "issue_id": "CORUNDUM-esol.2",
+      "depends_on_id": "CORUNDUM-esol",
+      "type": "parent-child",
+      "created_at": "2026-10-18T16:43:42.882020143Z",
+      "created_by": "agent",
+      "metadata": "{}"
+    }
+  ]
+}

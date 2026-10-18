@@ -8,5 +8,6 @@
   "compact_tier2_days": "90",
   "compact_tier2_dep_levels": "5",
   "compaction_enabled": "false",
-  "issue_prefix": "CORUNDUM"
+  "issue_prefix": "CORUNDUM",
+  "kv.memory.corundum-decisions-2026-10-18-epic-corundum-esol": "Corundum decisions 2026-10-18 (epic CORUNDUM-esol design field has full text): keep IPNS; chain handle-\u003eDID(did:webvh default)-\u003eIPNS-\u003eRootManifest; operator holds IPNS content key by default, self-custody optional, DID update/recovery keys user-held; alice@domain via WebFinger; signing = detached JWS over stored bytes, id = raw CID, no NFKC; impl language Rust. Reverses agora C2."
 }

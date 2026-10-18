@@ -1,0 +1,22 @@
+{
+  "id": "CORUNDUM-esol.5",
+  "title": "Fix archive mutability and IPFS mechanics",
+  "description": "Ch 9-13 (04-content-storage), 05-activity-types. 'Immutable epochs' is false: Entry.replies, deletion, edit, resignature rewrite epochs. NEEDS DECISION: move mutable state (replies, signingRecord, retention) to an overlay, or document rewrites. Decide typed IPLD links vs opaque strings (recursive pin/CAR export). Normative max object size vs 1 MiB block limit; media chunker/raw-leaves params; byteRange inclusive/exclusive; MediaManifest self-referential id; quality variants cannot share chunks; lookup for unfinalized chunk; remove false cross-user id-stability claim; contentHash duplicates CID digest (three names for retained hash); ATD reference by CID missing from examples; Note content ContentRef vs string.",
+  "status": "open",
+  "priority": 1,
+  "issue_type": "feature",
+  "owner": "mark@reviewcommit.com",
+  "created_at": "2026-10-18T16:43:43.025001805Z",
+  "created_by": "agent",
+  "updated_at": "2026-10-18T16:43:43.025001805Z",
+  "dependencies": [
+    {
+      "issue_id": "CORUNDUM-esol.5",
+      "depends_on_id": "CORUNDUM-esol",
+      "type": "parent-child",
+      "created_at": "2026-10-18T16:43:43.033381139Z",
+      "created_by": "agent",
+      "metadata": "{}"
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "id": "CORUNDUM-esol.9",
+  "title": "Reconcile event streams Ch 36 vs Ch 47-52",
+  "description": "11-event-streams vs 16-interop-streams: WebSocket preferred vs ruled out; resume vs no replay; same path GET /corundum/v1/events; OAuth mention vs client API out of scope. Heartbeat sequence numbers; filtered gaps break gap detection; global sequence needs visibility-after-commit rule; state at-least-once + idempotent receivers; since=0 head vs start-of-log; verify tombstones and key-rotated against signed objects; per-event signatures SHOULD vs MUST; long-lived stream outlives key revocation; block.created event leaks blocks; eventStream missing from capabilities; event names key on IPNS (fine under D1). Decide whether client stream (Ch 36) stays in scope.",
+  "status": "open",
+  "priority": 2,
+  "issue_type": "bug",
+  "owner": "mark@reviewcommit.com",
+  "created_at": "2026-10-18T16:43:43.240943576Z",
+  "created_by": "agent",
+  "updated_at": "2026-10-18T16:43:43.240943576Z",
+  "dependencies": [
+    {
+      "issue_id": "CORUNDUM-esol.9",
+      "depends_on_id": "CORUNDUM-esol",
+      "type": "parent-child",
+      "created_at": "2026-10-18T16:43:43.249324882Z",
+      "created_by": "agent",
+      "metadata": "{}"
+    },
+    {
+      "issue_id": "CORUNDUM-esol.9",
+      "depends_on_id": "CORUNDUM-esol.6",
+      "type": "blocks",
+      "created_at": "2026-10-18T16:43:43.992025649Z",
+      "created_by": "agent",
+      "metadata": "{}"
+    }
+  ]
+}

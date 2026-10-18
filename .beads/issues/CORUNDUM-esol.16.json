@@ -1,0 +1,22 @@
+{
+  "id": "CORUNDUM-esol.16",
+  "title": "Decide fate of dns-conflicts.md",
+  "description": "docs/analysis/dns-conflicts.md analyzes retired attic specs; issues 1-6, 8 describe text no longer present. Issue 7 wrong: _corundum.*.x is not a DNS wildcard (RFC 4592). NEEDS DECISION: rebase on current spec (WebFinger now in play) or move to attic.",
+  "status": "open",
+  "priority": 3,
+  "issue_type": "task",
+  "owner": "mark@reviewcommit.com",
+  "created_at": "2026-10-18T16:43:43.599293723Z",
+  "created_by": "agent",
+  "updated_at": "2026-10-18T16:43:43.599293723Z",
+  "dependencies": [
+    {
+      "issue_id": "CORUNDUM-esol.16",
+      "depends_on_id": "CORUNDUM-esol",
+      "type": "parent-child",
+      "created_at": "2026-10-18T16:43:43.607818238Z",
+      "created_by": "agent",
+      "metadata": "{}"
+    }
+  ]
+}

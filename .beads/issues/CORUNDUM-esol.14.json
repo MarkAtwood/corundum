@@ -1,0 +1,46 @@
+{
+  "id": "CORUNDUM-esol.14",
+  "title": "Align implementation guide (Ch 41-46)",
+  "description": "15-implementation-guide. Kubo RPC is POST-only; pin/remote/add takes arg=; no 'pinner' API; /api/v0/add yields UnixFS CID, use block/put with cid-codec=raw; Kubo keystore not encrypted, no external key mgmt; retry backoff doubling vs 1/4/16/64; '52-char base58' IPNS names. Update to D1-D4.",
+  "status": "open",
+  "priority": 2,
+  "issue_type": "bug",
+  "owner": "mark@reviewcommit.com",
+  "created_at": "2026-10-18T16:43:43.493940753Z",
+  "created_by": "agent",
+  "updated_at": "2026-10-18T16:43:43.493940753Z",
+  "dependencies": [
+    {
+      "issue_id": "CORUNDUM-esol.14",
+      "depends_on_id": "CORUNDUM-esol",
+      "type": "parent-child",
+      "created_at": "2026-10-18T16:43:43.502739117Z",
+      "created_by": "agent",
+      "metadata": "{}"
+    },
+    {
+      "issue_id": "CORUNDUM-esol.14",
+      "depends_on_id": "CORUNDUM-esol.3",
+      "type": "blocks",
+      "created_at": "2026-10-18T16:43:43.811766184Z",
+      "created_by": "agent",
+      "metadata": "{}"
+    },
+    {
+      "issue_id": "CORUNDUM-esol.14",
+      "depends_on_id": "CORUNDUM-esol.4",
+      "type": "blocks",
+      "created_at": "2026-10-18T16:43:43.851851081Z",
+      "created_by": "agent",
+      "metadata": "{}"
+    },
+    {
+      "issue_id": "CORUNDUM-esol.14",
+      "depends_on_id": "CORUNDUM-esol.5",
+      "type": "blocks",
+      "created_at": "2026-10-18T16:43:43.885054677Z",
+      "created_by": "agent",
+      "metadata": "{}"
+    }
+  ]
+}

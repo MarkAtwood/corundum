@@ -1,0 +1,22 @@
+{
+  "id": "CORUNDUM-esol.8",
+  "title": "Blocks: disclosure decision; drop Bloom/Merkle",
+  "description": "08-social-graph. NEEDS DECISION: does a blocked user learn of the block? Spec says never (08:9) but blocked-user code, blockedIdentity, BlockNotification disclose it. Bloom filter adds nothing over local lookup and leaks when shared (enumerable identities); Merkle non-membership proof leaks neighbors. Recommend removing both. Also follow-list privacy interaction with followers-only replies (agora C6) - NEEDS DECISION.",
+  "status": "open",
+  "priority": 1,
+  "issue_type": "bug",
+  "owner": "mark@reviewcommit.com",
+  "created_at": "2026-10-18T16:43:43.190311547Z",
+  "created_by": "agent",
+  "updated_at": "2026-10-18T16:43:43.190311547Z",
+  "dependencies": [
+    {
+      "issue_id": "CORUNDUM-esol.8",
+      "depends_on_id": "CORUNDUM-esol",
+      "type": "parent-child",
+      "created_at": "2026-10-18T16:43:43.198882836Z",
+      "created_by": "agent",
+      "metadata": "{}"
+    }
+  ]
+}

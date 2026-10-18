@@ -1,0 +1,13 @@
+{
+  "id": "CORUNDUM-esol",
+  "title": "Corundum spec repair (review 2026-10-18)",
+  "description": "Six-reader review of the full spec found ~100 defects: inconsistent signing/id model, security holes in federation, fabricated examples, stale docs. Repair the spec chapter group by chapter group.",
+  "design": "Decisions (Mark, 2026-10-18): (D1) Keep IPNS. Resolution chain handle -\u003e DID -\u003e IPNS -\u003e RootManifest. DID default did:webvh (did:plc, did:key opt-in); bare operator-issued did:web is not acceptable for recovery. (D2) Operator holds the IPNS (content signing) key by default; user self-custody is an option. DID update/recovery keys are always user-held. Rotating ipnsName in the DID log defeats a hostile operator; signatures by the old IPNS key after that log entry are rejected. (D3) Email-like handles alice@domain resolve to DID via WebFinger (RFC 7033); DNS TXT _corundum remains for own-domain users. (D4) Signing = JWS detached unencoded payload (RFC 7515/7797/8037) over exact stored bytes; activity id = CIDv1 raw/sha2-256 of stored bytes; no Canonical JSON, no NFKC. (D5) MVP Go plan moved to attic; implementation language is Rust. Reverses agora profile decision C2 (drop IPNS).",
+  "status": "open",
+  "priority": 1,
+  "issue_type": "epic",
+  "owner": "mark@reviewcommit.com",
+  "created_at": "2026-10-18T16:43:42.756073918Z",
+  "created_by": "agent",
+  "updated_at": "2026-10-18T16:43:42.756073918Z"
+}

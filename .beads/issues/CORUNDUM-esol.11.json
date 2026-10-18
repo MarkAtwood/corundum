@@ -1,0 +1,22 @@
+{
+  "id": "CORUNDUM-esol.11",
+  "title": "Repair curation design",
+  "description": "09-curation. Signed feed head (sequence + chained hash) - CDN can currently withhold/rollback/blank. Perceptual matching cannot work via exact-match Bloom/shards: ship local datasets or drop Bloom for perceptual types; define Chromaprint/TMK/SimHash formats or remove. PDQ example 32 hex vs 64. Bloom size off ~10x (10M =\u003e ~12.5MB). Shard path reveals full hash. ordinal semantics contradictory. key_id embedding contradicts Ch 34. CSAM: hash lists are not publishable; US 2258A requires reporting not scanning; public PDQ list is an evasion oracle; evidence-preservation duty. Bloom hash function unspecified.",
+  "status": "open",
+  "priority": 1,
+  "issue_type": "bug",
+  "owner": "mark@reviewcommit.com",
+  "created_at": "2026-10-18T16:43:43.346413107Z",
+  "created_by": "agent",
+  "updated_at": "2026-10-18T16:43:43.346413107Z",
+  "dependencies": [
+    {
+      "issue_id": "CORUNDUM-esol.11",
+      "depends_on_id": "CORUNDUM-esol",
+      "type": "parent-child",
+      "created_at": "2026-10-18T16:43:43.354713714Z",
+      "created_by": "agent",
+      "metadata": "{}"
+    }
+  ]
+}

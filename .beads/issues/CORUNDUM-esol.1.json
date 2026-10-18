@@ -1,0 +1,26 @@
+{
+  "id": "CORUNDUM-esol.1",
+  "title": "Move Go MVP plan to attic",
+  "description": "docs/corundum-mvp-implementation-plan.md is Go and written against a retired spec version (wrong Entry/Activity/reply/manifest/error shapes). Decision D5: git mv to attic/.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "chore",
+  "assignee": "agent",
+  "owner": "mark@reviewcommit.com",
+  "created_at": "2026-10-18T16:43:42.81287702Z",
+  "created_by": "agent",
+  "updated_at": "2026-10-18T16:43:54.135353651Z",
+  "started_at": "2026-10-18T16:43:50.031112965Z",
+  "closed_at": "2026-10-18T16:43:54.135353651Z",
+  "close_reason": "git mv to attic/; no inbound links",
+  "dependencies": [
+    {
+      "issue_id": "CORUNDUM-esol.1",
+      "depends_on_id": "CORUNDUM-esol",
+      "type": "parent-child",
+      "created_at": "2026-10-18T16:43:42.822608543Z",
+      "created_by": "agent",
+      "metadata": "{}"
+    }
+  ]
+}
