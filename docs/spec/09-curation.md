@@ -6,48 +6,45 @@ Curation is Corundum's most distinctive design, and it is worth understanding th
 
 Today, platform moderation works like this: the platform makes decisions internally, applies them through opaque systems, and provides no accountability for those decisions. A post that is removed, an account that is suspended, an algorithm that suppresses content — none of these come with a clear statement of who made the decision, what authority they had, or how it can be appealed. The platform is simultaneously the content publisher, the judgment-maker, and the enforcer. There is no separation of these roles.
 
-Corundum's curation system separates who makes the judgment from who enforces it. A curator announces a judgment — "content with this hash is CSAM" — but does not have the ability to remove content from any platform. The platform (operator) subscribes to the curator's feed and decides how to apply the judgment. This separation has several important consequences.
+Corundum's curation system separates who makes the judgment from who enforces it. A curator announces a judgment — "content with this hash is spam" — but does not have the ability to remove content from any platform. The platform (operator) subscribes to the curator's feed and decides how to apply the judgment. This separation has several important consequences.
 
-First, propagation at network scale. Consider a child safety organization that maintains a hash database of known CSAM. In the current world, they must integrate separately with every platform — a different API, a different agreement, a different technical integration for each platform. In Corundum, they publish a signed curation feed. Every Corundum operator that subscribes to their feed receives the judgment. A new hash is propagated to all subscribing operators the next time they poll the feed. No per-platform integration required; the protocol provides the distribution mechanism.
+First, propagation at network scale. Today a curator must integrate separately with every platform — a different API, a different technical integration for each one. In Corundum, a curator publishes one signed curation feed, and every operator that subscribes to it receives each new judgment the next time it polls. The protocol provides the distribution mechanism. It does not replace the curator's own admission rules: child-safety hash lists (NCMEC, IWF) are distributed only to vetted providers under agreement, and a Corundum feed carrying them is readable only by operators the curator has admitted (Chapter 32).
 
 Second, accountability. Curators must publish an Authority Declaration before publishing any curations. The declaration includes their governance model (how decisions are made), their appeal process (how judgments can be challenged), their jurisdiction claims, and the organizational identity behind the operation. Every curation entry is signed by a declared key and traceable to the declaration. There are no anonymous curators; every judgment is attributable to a declared entity.
 
-Third, operator flexibility. Operators choose which curators to trust and decide how to apply their judgments. A children's platform might subscribe to CSAM hash lists, spam detection, NSFW classification, and a curated whitelist of age-appropriate content, and block anything that doesn't pass all checks. An adults-only platform might subscribe to CSAM hash lists (legally required) but not to NSFW classification, since NSFW content is what their users want. A general-purpose platform might subscribe to several curators and apply them with different severity thresholds. The protocol provides the infrastructure; the policy is the operator's.
+Third, operator flexibility. Operators choose which curators to trust and decide how to apply their judgments. A children's platform might subscribe to child-safety hash lists, spam detection, NSFW classification, and a curated whitelist of age-appropriate content, and block anything that doesn't pass all checks. An adults-only platform might subscribe to child-safety hash lists but not to NSFW classification, since NSFW content is what their users want. A general-purpose platform might subscribe to several curators and apply them with different severity thresholds. The protocol provides the infrastructure; the policy is the operator's.
 
-A **curator** is any entity that publishes signed judgments about content, identified by content hash. A judgment (a `CurationEntry`) says: "content with hash X has been judged as reason Y with severity Z by authority W."
+A **curator** is any entity that publishes signed judgments about content, identified by content hash. A judgment (a `CurationEntry`) says: "content with hash X has been judged as reason Y with strength Z by authority W."
 
 Curators operate on content hashes, not on platform-specific post IDs. This means:
 
-- A CSAM hash flagged by one curator is flagged everywhere, regardless of which operator hosts it.
+- A hash flagged by one curator is flagged at every subscribing operator, regardless of which operator hosts the content.
 - A spam template identified by one curator can be blocked across all subscribing operators.
 - Content can be flagged before it even appears on the network (pre-emptive curation from known-bad hash databases).
 - The same content posted by multiple users matches a single curation entry.
 
 ### Chapter 28: Hash Types for Content Matching
 
-The curation system supports multiple hash types because different matching needs require fundamentally different hash functions.
+The curation system supports two kinds of hash, because different matching needs require fundamentally different hash functions.
 
-**Cryptographic hashes** (SHA-256) provide exact byte-for-byte content matching. If Alice and Bob both post the exact same JPEG file, their SHA-256 hashes will match. But if one of them recompresses the JPEG at slightly different quality settings, or resizes it, or strips the EXIF data, the hash will differ entirely. SHA-256 alone is insufficient for any use case where the harmful content might be re-encoded.
+**Exact hashes** (SHA-256) match identical input. If Alice and Bob both post the exact same JPEG file, their SHA-256 hashes match. If one of them recompresses the JPEG, resizes it, or strips its EXIF data, the hash differs entirely. Exact hashes are matched by equality, so they can be looked up in a hash table, a Bloom filter, or a sharded index.
 
-**Perceptual image hashes** (pHash, PhotoDNA, PDQ) solve the re-encoding problem. A perceptual hash is computed from the visual content of an image — the pixels, not the bytes. Two images that look the same to a human but differ in encoding, compression, resolution, or format will produce similar or identical perceptual hash values. PhotoDNA is the industry standard for CSAM detection (used by Microsoft, Facebook, and most major platforms). PDQ is Facebook's open-source alternative, designed to be more computationally efficient than PhotoDNA for high-volume processing.
+**Perceptual image hashes** solve the re-encoding problem. A perceptual hash is computed from the visual content of an image — the pixels, not the bytes. Two images that look the same to a human but differ in encoding, compression, resolution, or format produce hashes that differ in only a few bits. Matching is by distance, not equality: two PDQ hashes match when their Hamming distance is at most a threshold. A distance search cannot be answered by an exact-match structure such as a Bloom filter or a lookup keyed by the hash, so perceptual datasets are always downloaded in full and matched locally (Chapter 32).
 
-The critical insight about perceptual hashes: they measure perceptual similarity, not byte equality. A photo that's been cropped slightly, converted from JPEG to PNG, reduced to 720p from 1080p, or had its metadata stripped will still match the original's perceptual hash within the matching threshold. This is what makes perceptual hashing useful for content matching: perpetrators routinely re-encode content to defeat SHA-256 matching.
+PhotoDNA is the industry standard for CSAM detection, but it is proprietary and licensed, so Corundum does not define it. PDQ (from Meta's ThreatExchange project) is openly specified and licensed, and is the perceptual hash Corundum defines. PDQ tolerates re-encoding, format conversion, resizing, and mild color or quality changes. It does not tolerate significant cropping, rotation, mirroring, or substantial edits; a curator that wants to match rotated or mirrored copies lists the hashes of those variants as additional subjects.
 
-**Perceptual video hashes** (TMK+PDQ) extend the perceptual approach to video. TMK+PDQ combines temporal matching (comparing frame sequences over time) with per-frame PDQ hashing, allowing matching across transcodes, quality reductions, trimming, and watermarking.
+This version of the specification defines no perceptual hash for video, audio, or near-duplicate text. A future revision may add one once its format and matching parameters can be pinned down precisely. Until then, curators match those media by exact hash.
 
-**Perceptual audio hashes** (Chromaprint) match audio content across different encodings, bitrates, and formats by capturing the acoustic fingerprint of the content.
+**Defined hash pairs.** Every subject names a `hash_type` and a `hash_scope`. Only these pairs are defined; an entry with any other pair MUST be rejected:
 
-**Text similarity hashes** (SimHash) use locality-sensitive hashing for near-duplicate text detection. SimHash maps similar texts to similar hash values, so two texts that differ by a few words (typical spam template variations) produce hash values that are "close" by a defined distance metric. This allows a spam detection system to flag a template once and match all the variations.
+| `hash_type` | `hash_scope` | Input | Value | Matching |
+|---|---|---|---|---|
+| `sha256` | `media-bytes` | The complete bytes of a media file (for chunked media, the reassembled file of one variant, Chapter 16) | 64 lowercase hex characters | Exact |
+| `sha256` | `text-exact` | The UTF-8 bytes of an activity's `content` string, after JSON unescaping | 64 lowercase hex characters | Exact |
+| `sha256` | `text-normalized` | The UTF-8 bytes of the `content` string after text normalization (below) | 64 lowercase hex characters | Exact |
+| `pdq` | `perceptual-image` | The decoded image | 64 lowercase hex characters (256 bits), in the encoding of the ThreatExchange reference implementation | Hamming distance ≤ threshold |
 
-**Hash scopes** specify which part of the content was hashed, enabling precise curation entries:
-
-- `media-bytes`: Raw media file bytes (for exact matches)
-- `media-pixels`: Decoded pixel/sample data (for format-agnostic matching)
-- `perceptual-image`: Perceptual hash of image content
-- `perceptual-video`: Perceptual hash of video content
-- `perceptual-audio`: Audio fingerprint
-- `text-exact`: Raw text bytes (for exact text matching)
-- `text-normalized`: Unicode-normalized, whitespace-collapsed text (for text matching regardless of formatting)
+**Text normalization** matches text regardless of formatting, so that a spam template matches its reformatted copies. Apply, in order, using Unicode 15.1.0: (1) Normalization Form NFKC; (2) full case folding (`CaseFolding.txt`, statuses C and F); (3) replace every maximal run of `White_Space` characters with a single U+0020; (4) remove a leading or trailing U+0020. Unlike content identifiers (Chapter 33), this hash deliberately folds distinct text together; it is used only for matching, never for identity.
 
 ### Chapter 29: Curation Entries
 
@@ -57,24 +54,20 @@ A `CurationEntry` contains:
 - **authority**: The curator issuing the judgment (URI identifying the Authority Declaration)
 - **issued**: When the judgment was made
 - **reason**: A structured reason code from the defined taxonomy
-- **ordinal**: A numeric severity/confidence score
+- **ordinal**: A number from 0 to 1 giving the strength of the judgment
 - **evidence**: Optional supporting evidence (itself a content-addressed reference)
 - **expires**: Optional expiration (for temporary curations — e.g., electoral misinformation expires after the election)
 - **supersedes**: Optional reference to an earlier curation this one replaces
 
-**The `subjects` array.** A single curation entry can list multiple subject hashes because the same content may be representable in multiple ways. Consider a JPEG image of known CSAM: it has a SHA-256 hash (a precise byte-for-byte fingerprint of this exact file) and a PDQ hash (a perceptual fingerprint capturing the visual content). A perpetrator who recompresses the image will produce a different SHA-256 but a PDQ hash that still matches the original within the perceptual similarity threshold. By including both hashes as subjects of the same entry, the curator issues a single judgment that can be matched by exact-match systems (using SHA-256) and by perceptual-match systems (using PDQ). Operators that support both hash types can check both; operators that support only one type will still benefit from whichever subject hash they can compute. The single entry also means there is one canonical judgment for the content — the authority, the reason, the ordinal, and any evidence are stated once, not duplicated.
+**The `subjects` array.** A single curation entry can list multiple subject hashes because the same content may be representable in multiple ways. Consider a JPEG image: it has a SHA-256 hash (a precise fingerprint of this exact file) and a PDQ hash (a perceptual fingerprint of the visual content). Someone who recompresses the image produces a different SHA-256 but a PDQ hash within the matching distance of the original. By including both hashes as subjects of the same entry, the curator issues a single judgment that can be matched by exact-match systems (using SHA-256) and by perceptual-match systems (using PDQ). Operators that support only one type still benefit from whichever subject hash they can compute. The single entry also means there is one judgment for the content — the authority, the reason, the ordinal, and any evidence are stated once, not duplicated.
 
-**The `ordinal` field.** The ordinal is a single numeric field used across all categories, but its semantics vary by category in well-defined ways:
+**The `ordinal` field.** The ordinal is a number from `0.0` to `1.0` inclusive. Higher always means stronger: more confidence that the reason applies, or a stronger recommendation. `0.0` means the reason does not apply; it is used to retract an earlier entry (see `supersedes` below).
 
-- For `legal/csam-detected`, the only meaningful value is `1.0` — meaning "this is confirmed CSAM." There is no confidence spectrum for a confirmed CSAM hash: it either matches a known hash or it doesn't. An ordinal of `0.5` for CSAM would be meaningless; `0.0` means not flagged; `1.0` means flagged.
+- For `legal/csam-detected`, curators use `1.0`: the content matches known, confirmed material.
+- For `spam/spam-commercial`, `0.85` means "85% confidence this is commercial spam." An operator might block at `0.9` and label at `0.7`.
+- For `editorial/editor-pick`, `0.9` is a strong recommendation and `0.3` a weak one. The ordinal is a strength, not a rank; an editor who wants an ordered list publishes it by other means.
 
-- For `spam/spam-commercial`, an ordinal of `0.85` means "85% confidence this is commercial spam." An operator might block at `0.9` and label-as-spam at `0.7`. The ordinal is a classifier confidence score that operators can threshold according to their policy.
-
-- For `editorial/editor-pick`, an ordinal of `5.0` means "ranked 5th in the editor's picks." Higher ordinals are better picks; ordinal `1.0` is the top pick. Operators can sort by ordinal descending to display the editor's ranking in order.
-
-- For suppression use cases, an ordinal of `-1.0` means "suppress this content." Negative values signal removal-strength rather than presence-strength; the more negative, the stronger the suppression signal.
-
-A single field is used for all these semantics because it makes the matching logic uniform: an operator configures a threshold for each (category, action) pair and compares the entry's ordinal against it. An operator policy might say: `legal/csam-detected` ordinal >= 1.0 → immediate block; `spam/spam-commercial` ordinal >= 0.8 → block; `spam/spam-commercial` ordinal >= 0.6 → label. The comparison is always the same operation regardless of whether the number represents a confidence score, a rank, or a binary flag. A more complex field (separate confidence and rank fields, enum action types) would require category-specific matching logic in every operator implementation. The single numeric field keeps the common case simple.
+A single field with a single meaning keeps matching uniform: an operator configures a threshold for each (category, action) pair and checks `ordinal ≥ threshold`. Thresholds MUST be greater than `0.0`, so a retraction never matches a rule.
 
 **The reason taxonomy** is organized into categories, each with specific subcodes:
 
@@ -89,17 +82,17 @@ A single field is used for all these semantics because it makes the matching log
 
 What kinds of organizations publish in each category, and what operators typically do with the entries:
 
-- `legal/csam-detected` at ordinal `1.0`: Published by child safety organizations (NCMEC, IWF) and law enforcement-designated bodies. An operator receiving this entry has no discretion: they block the content immediately and in most jurisdictions are legally required to report it. There is no "label but allow" response to a confirmed CSAM hash.
+- `legal/csam-detected` at ordinal `1.0`: Published by child safety organizations and law enforcement-designated bodies, to admitted operators only (Chapter 32). Operators typically block the content at once. Blocking is not deletion: operators commonly have legal duties to report apparent CSAM and to preserve what they report (in the US, 18 U.S.C. §2258A requires providers to report apparent CSAM they become aware of and to preserve it; it does not require them to scan). These duties vary by jurisdiction and are outside this specification; Chapter 39 covers how to retain content under a legal hold.
 
 - `quality/low-quality` at ordinal `0.6`: Published by community moderation organizations, editorial boards, or algorithmic quality detectors. An operator might downrank the content (show it lower in feeds) rather than block it. A children's platform might block it; a general-purpose platform might only suppress it from recommendations. There is operator discretion here, which is appropriate for a judgment about quality rather than law.
 
-- `editorial/editor-pick` at ordinal `10.0`: Published by editorial organizations, curated content boards, or trusted communities. An operator might surface entries with high ordinals in a "curated" or "featured" feed, or use them as signals for recommendation algorithms. These entries represent positive curation rather than suppression.
+- `editorial/editor-pick` at ordinal `0.9`: Published by editorial organizations, curated content boards, or trusted communities. An operator might surface entries above a threshold in a "curated" or "featured" feed, or use them as signals for recommendation algorithms. These entries represent positive curation rather than suppression.
 
 **The `expires` and `supersedes` fields.** These fields handle two common operational realities.
 
 `expires` is used for curations that are inherently time-bounded. Electoral misinformation (`misinfo-electoral`) entered during an election campaign should expire after the election, since the same content may not be misleading in a historical context. A temporary account suspension (flagged with a safety reason) might be set to expire in 30 days. After expiration, operators should treat the entry as if it never existed; they should not apply an expired curation to incoming content.
 
-`supersedes` is used when a curator updates a prior judgment. An investigation might proceed in stages: an initial entry at `legal/csam-suspected` is published when content is flagged for review; after the investigation concludes, a second entry at `legal/csam-detected` (or a retraction entry) supersedes the original. The superseding entry carries the CID of the entry it replaces. Operators that receive both entries should apply only the superseding one. This allows curators to correct mistakes (a false positive that is subsequently cleared) without requiring all subscribing operators to be notified out-of-band; the feed itself carries the correction.
+`supersedes` is used when a curator updates a prior judgment. An investigation might proceed in stages: an initial entry at `legal/csam-suspected` is published when content is flagged for review; after the investigation concludes, a second entry at `legal/csam-detected`, or a retraction at ordinal `0.0`, supersedes the original. The superseding entry carries the sequence number of the entry it replaces. Operators that receive both entries apply only the superseding one. This lets curators correct mistakes (a false positive that is subsequently cleared) through the feed itself rather than out-of-band.
 
 ### Chapter 30: Curation Authority Declarations
 
@@ -109,17 +102,18 @@ Without a declaration, curations are anonymous assertions: a signed statement th
 
 The Authority Declaration contains:
 
-- **Public key**: For verifying the curator's signatures.
+- **Keys**: For verifying the curator's signatures.
 - **Organization details**: Name, type (government agency, nonprofit, commercial entity), registration information.
-- **Jurisdiction claims**: Which regions' laws the curator operates under. A `"global"` claim covers all jurisdictions; specific claims like `"US"` or `"EU"` indicate jurisdiction-specific curations.
+- **Jurisdiction claims**: Which regions' laws the curator operates under. A `"global"` claim covers all jurisdictions; specific claims like `"US"` or `"DE"` indicate jurisdiction-specific curations.
 - **Governance model**: A link to documentation of how the organization makes its curation decisions. What's the process? Who makes decisions? What oversight exists?
 - **Appeal process**: A link to documentation of how content creators and operators can challenge a curation judgment.
 - **Hash capabilities**: Which hash types the curator produces, so operators know which of their content-hashing infrastructure to use for matching.
+- **Feed access**: Whether the feed is public or restricted to admitted operators.
 - **Delegate keys**: Automated systems (ML classifiers, batch processing pipelines) authorized to sign curation entries on behalf of the authority.
 
 **`governanceModel`.** This field links to documentation explaining how the curator makes its decisions. The field is a transparency requirement, not a quality bar: the protocol requires that something be published, not that it meet any particular standard of governance rigor. Different curators will have very different governance structures, and all of them are legitimate.
 
-NCMEC's governance is defined by US federal law (the Protect Our Children Act and similar legislation), by congressional oversight, and by its status as a government-designated nonprofit. Its governance document would reference those legal instruments. A community-operated spam detection service might be governed by a committee of volunteer operators, with decisions made by majority vote and documented in a GitHub repo with an RFC-style proposal process. A commercial classifier might be governed by the company's internal policies with an external audit. The point is that the governance document exists and is linked — operators that subscribe to a curator's feed can read how that curator operates. An operator choosing to subscribe to a spam detection feed can evaluate whether the governance model is appropriate for the trust they're placing in that feed.
+NCMEC's role is defined in US federal statute (including 18 U.S.C. §2258A and 34 U.S.C. §11293), and its governance document would reference those instruments. A community-operated spam detection service might be governed by a committee of volunteer operators, with decisions made by majority vote and documented in a GitHub repo with an RFC-style proposal process. A commercial classifier might be governed by the company's internal policies with an external audit. The point is that the governance document exists and is linked — operators that subscribe to a curator's feed can read how that curator operates. An operator choosing to subscribe to a spam detection feed can evaluate whether the governance model is appropriate for the trust they're placing in that feed.
 
 **`appealProcess`.** This field links to documentation explaining how judgments can be challenged and corrected. It is specifically required because automated classifiers make mistakes, and false positives have real consequences for legitimate creators.
 
@@ -127,30 +121,30 @@ A photographer whose artistic nude work is flagged as `nsfw-sexual` needs a mech
 
 **`jurisdictionClaims`.** Curators may have legal authority only within certain jurisdictions, and operators in different jurisdictions appropriately give different weight to different curator authority claims.
 
-A government agency's copyright enforcement body claims authority within its jurisdiction. A US Digital Millennium Copyright Act takedown notice carries legal weight for operators subject to US law, but an operator in Germany running under German law may give it different weight than a `court-order` entry from a German court. A global CSAM hash database operated by an international coalition (with mandates from multiple governments) claims global authority and is treated as high-authority by operators in all those jurisdictions.
+A government agency's copyright enforcement body claims authority within its jurisdiction. A US Digital Millennium Copyright Act takedown notice carries legal weight for operators subject to US law, but an operator in Germany running under German law may give it different weight than a `court-order` entry from a German court. A global hash database operated by an international coalition (with mandates from multiple governments) claims global authority and is treated as high-authority by operators in all those jurisdictions.
 
 This field allows operators to implement jurisdiction-appropriate trust hierarchies. An operator serving primarily European users might give higher weight to entries from EU-authorized bodies; a global operator might treat entries from global authorities as universally applicable and jurisdiction-specific entries as applicable only to users in the named jurisdiction.
 
 **`delegateKeys`.** Automated systems sign curation entries on behalf of the authority rather than requiring a human to sign each entry manually. This is a practical necessity for high-volume curation.
 
-A CSAM detection service might process tens of millions of images per day across all content uploaded to subscribing platforms. Having a human examine and sign each flagged curation entry is physically infeasible. An ML classifier that flags content at scale must be able to sign entries automatically. Delegate keys allow this: the authority declaration lists one or more delegate keys with a description of what systems they are authorized to represent. A curation entry signed by a delegate key is treated as if it were signed by the authority, because the authority declaration itself (signed by the authority's root key) names the delegate key and authorizes it.
+A classifier that reviews millions of images a day cannot have a human sign each entry it produces. Delegate keys allow automatic signing: the authority declaration lists one or more delegate keys with the reasons each is authorized to sign. A curation entry signed by a delegate key is treated as if it were signed by the authority, because the authority declaration itself (signed by the authority's root key) names the delegate key and authorizes it.
 
-Delegate keys have narrower authority than the authority's root key. The declaration specifies what categories and hash types each delegate key is authorized to produce. A delegate key used by a CSAM classifier might be authorized only for `legal/csam-detected` and `legal/csam-suspected` entries, not for editorial or quality judgments. If a delegate key's private key is compromised (e.g., a server breach), the authority can revoke it by publishing an updated declaration that removes the key, without affecting the authority's root key or other delegate keys.
+Delegate keys have narrower authority than the authority's root key. The declaration specifies which reasons each delegate key may sign. A delegate key used by a classifier might be authorized only for `legal/csam-suspected` — a classifier's output is a suspicion, not a confirmed match — and not for editorial or quality judgments. If a delegate key's private key is compromised (e.g., a server breach), the authority can revoke it by publishing an updated declaration that removes the key, without affecting the authority's root key or other delegate keys.
 
 ### Chapter 31: How Operators Use Curations
 
 Operators subscribe to whichever curators they choose. A typical operator might subscribe to:
 
-- An NCMEC/CSAM hash database curator (legally required in many jurisdictions)
+- A child-safety hash list (available only under agreement with the curator)
 - A general spam detection curator
 - An NSFW classification curator
 - An editorial/quality curator (for recommending high-quality content)
 
-**The policy table.** An operator's curation policy is a table of `(curator, reason-pattern, ordinal-threshold, action)` rules. Each row says: when this curator signals this reason at this confidence level or above, take this action. A concrete example:
+**The policy table.** An operator's curation policy is a table of `(curator, reason-pattern, ordinal-threshold, action)` rules. Each row says: when this curator signals this reason at this strength or above, take this action. A concrete example:
 
 ```
-Curator: NCMEC CSAM Database
-  legal/csam-detected  ≥ 1.0  → BLOCK_IMMEDIATELY + REPORT
+Curator: Child Safety Hash List
+  legal/csam-detected  ≥ 1.0  → BLOCK_IMMEDIATELY + PRESERVE + REPORT
   legal/csam-suspected ≥ 0.8  → QUARANTINE + HUMAN_REVIEW
 
 Curator: SpamShield Pro
@@ -163,25 +157,25 @@ Curator: NSFW Classifier
   nsfw/nsfw-gore       ≥ 0.9  → BLOCK
 
 Curator: Editorial Board
-  editorial/editor-pick ≥ 1.0  → BOOST_IN_RECOMMENDATIONS
+  editorial/editor-pick ≥ 0.5  → BOOST_IN_RECOMMENDATIONS
 ```
 
 This is not a wire format — it is illustrative of the data structure an operator maintains internally to drive policy evaluation. The protocol specifies what curators publish and what operators must check; how the operator stores and evaluates its policy rules is an implementation choice.
 
 **The content check pipeline.** When content arrives — either a new local post or an incoming reply submission — the operator runs it through its curation policy before publishing. The pipeline:
 
-1. Compute all hash types that any subscribed curator uses. SHA-256 is always computed. PDQ perceptual hashes are computed if any curator uses perceptual image matching. TMK+PDQ video hashes are computed if any curator uses video matching. The operator knows which hash types are needed based on the `hashTypes` declared in each subscribed curator's authority declaration.
-2. Check each hash against the Bloom filters for all subscribed curators. A Bloom filter negative is a fast, local memory operation. Hashes that are definitely not in any curator's filter skip the network lookup entirely — this is the fast negative path, and it handles the vast majority of content.
-3. For hashes that produce a Bloom filter positive, fetch the sharded-path entry to get the actual CurationEntry and confirm the match (or discard the false positive).
+1. Compute every hash pair (Chapter 28) that any subscribed curator lists in its `hash_capabilities`. SHA-256 of media bytes is always computed.
+2. Match exact hashes against each curator's entries: either the operator's local copy of the full dataset, or the curator's Bloom filter followed, on a positive, by a bucket fetch (Chapter 32).
+3. Match PDQ hashes against the operator's local copy of each curator's full dataset, by Hamming distance.
 4. Apply the policy table. Evaluate rules in order of severity. If the highest-severity match action is `BLOCK_IMMEDIATELY`: block and stop — do not evaluate further. If the action is `QUARANTINE`: hold for human review, do not publish. If the action is `LABEL`: publish with the label attached. If no rules match: publish.
 
-**Conflicting curator signals.** Curators will sometimes disagree about the same content. A perceptual hash match from an NSFW classifier might assign `nsfw/nsfw-sexual` at ordinal 0.85. The same post might be in an editorial curator's list with `editorial/editor-pick` at ordinal 3.0. These are signals from different categories with different stakes.
+**Conflicting curator signals.** Curators will sometimes disagree about the same content. A perceptual hash match from an NSFW classifier might assign `nsfw/nsfw-sexual` at ordinal 0.85. The same post might be in an editorial curator's list with `editorial/editor-pick` at ordinal 0.9. These are signals from different categories with different stakes.
 
 The recommended resolution policy: reason categories have an operator-configured severity ranking, and higher-severity categories override lower-severity ones. Legal and safety categories always outrank editorial categories. Within the same category, the more conservative action prevails — block beats label, label beats allow. An `nsfw` signal that requires hiding content from minors does not prevent the content from being boosted in adult recommendations on an adult-oriented platform; the actions apply to different dimensions of content handling. An operator is free to configure its own priority logic; this recommendation is not a protocol requirement.
 
-**Retroactive matching in practice.** When a new curation entry arrives in a subscribed curator's feed, the operator must check whether any content it has already stored matches the new entry. A new CSAM hash appearing in NCMEC's database means the operator must search its own content store for that hash and apply its policy if found.
+**Retroactive matching in practice.** When a new curation entry arrives in a subscribed curator's feed, the operator must check whether any content it has already stored matches the new entry.
 
-The implementation challenge is doing this at scale without disrupting service. An operator with billions of stored content items cannot scan them linearly every time a new curation entry arrives. The recommended implementation: maintain a content hash index — a database table mapping each content hash to the list of CIDs that contain it. When new curation entries arrive, query this index for each new hash. Matches trigger immediate policy application. For operators with large content stores, this index is not optional; it is the only way retroactive matching completes in bounded time.
+The implementation challenge is doing this at scale without disrupting service. An operator with billions of stored content items cannot scan them linearly every time a new curation entry arrives. The recommended implementation: maintain a content hash index mapping each exact hash of stored content to the CIDs that contain it, and, if the operator matches PDQ, an index that supports Hamming-distance search over the PDQ hashes of stored images (for example, multi-index hashing). When new curation entries arrive, query these indexes for each new subject. Matches trigger immediate policy application. For operators with large content stores, these indexes are not optional; they are the only way retroactive matching completes in bounded time.
 
 The protocol requires that retroactive matching happen. It does not specify how to implement the index. That is an operator concern.
 
@@ -191,29 +185,19 @@ If Operator B hosts content that Operator A has curated as harmful, Operator A's
 
 ### Chapter 32: Static Curation Hosting
 
-Not every curator needs to run a live API server. A child safety organization maintaining a CSAM hash database may prefer to publish it as static files on S3 or a CDN — simpler to operate, cheaper to scale, and compatible with any HTTP client. The static hosting specification enables this: curation feeds can be served from static infrastructure with no custom server software.
+Not every curator needs to run a live API server. A curator may publish its feed as static files on S3 or a CDN — simpler to operate, cheaper to scale, and compatible with any HTTP client. The static hosting specification enables this: curation feeds can be served from static infrastructure with no custom server software, except that a restricted feed needs a front end that authenticates requests (see Access control below).
 
-**The design constraint** is that curation databases can be large (tens of millions of hashes) and are queried by content hash. Serving a single file containing all entries doesn't work: downloading gigabytes to check one hash is impractical. The solution is a two-layer structure: path sharding for individual-entry lookups, plus a Bloom filter for fast bulk screening.
+**The design constraint** is that curation databases can be large (tens of millions of hashes), and the CDN that serves them is not trusted. Every feed provides the full dataset as a snapshot plus an append-only log, and a signed **feed head** that commits to all of it. Operators that want to match perceptual hashes download the full dataset and match locally, because a distance search cannot be done remotely by key. For exact hashes, a feed may also provide a Bloom filter and prefix buckets, so that an operator can screen content without holding the full dataset.
 
-**Directory sharding.** Entries are stored in a path hierarchy based on the content hash being curated. The first two hex characters of the hash form the first directory level; the next two form the second level. A CurationEntry covering hash `a3f9c2...` is stored at:
-
-```
-/feeds/example-authority/entries/a3/f9/a3f9c2...ndjson
-```
-
-A client that wants to check whether hash `a3f9c2...` has any curation entries fetches that path. If the file exists, it contains one or more CurationEntries (NDJSON format, one per line) for that hash. If the path returns 404, the hash has no entries. This lookup is exactly two path components and one HTTP GET — cacheable, CDN-compatible, O(1).
-
-Why two levels of sharding (4 hex characters)? With SHA-256 hashes and millions of entries, two levels (256 × 256 = 65,536 directories) distributes the entries into small files of manageable size. One level (256 directories) would produce files with tens of thousands of entries per shard for large databases; three levels would produce mostly empty directories.
-
-**The Bloom filter.** Individual hash lookups work for known content, but an operator receiving a new post needs to check it efficiently. Fetching the sharded path for every piece of content would mean one HTTP request per piece of content, which is acceptable but not ideal for high-volume operators. The feed provides a Bloom filter at:
+**The feed head.** The head is the root of trust for everything the CDN serves. It is a small file at:
 
 ```
-/feeds/example-authority/bloom.bin
+/feeds/example-authority/head.jws
 ```
 
-This file contains a serialized Bloom filter covering all hashes in the feed. An operator downloads the Bloom filter once (typically a few MB, even for databases of tens of millions of hashes, at 1% FPR with 10 bits per element) and checks content hashes locally. A Bloom filter negative — the hash is definitely not in the filter — means the content is definitely not curated by this authority. No HTTP request needed. A Bloom filter positive — the hash may be in the filter — triggers a sharded-path lookup to get the actual entry and confirm (or discard the false positive).
+The curator re-signs and republishes it every time any feed file changes, and at least once before the current head expires. Every other feed file is checked against a SHA-256 digest that the head commits to, directly or through `index.json`. A CDN therefore cannot alter, withhold, or roll back any part of the feed without the change being detected: it cannot forge a head, an operator rejects any head older than one it has already accepted, and an operator notices that a head has expired. What a CDN can still do is stop serving the feed; the head's expiry bounds how long that can go unnoticed. The head is defined under Feed Head Wire Format below.
 
-The Bloom filter is published alongside a metadata file that records its parameters: the number of hash functions, the bit-array size, the hash function family (double hashing: `(hash1 + i * hash2) mod m` with SHA-256-derived h1 and h2), and the count of inserted elements. This allows operators to check the FPR and decide whether to trust the filter's negative results.
+Feed files are served over HTTPS, not IPFS, and several of them exceed the single-block limit of Chapter 33, so the feed refers to them by hex SHA-256 digest rather than by CID.
 
 **Incremental synchronization.** The feed publishes an append-only log of new entries at:
 
@@ -223,7 +207,7 @@ The Bloom filter is published alongside a metadata file that records its paramet
 /feeds/example-authority/log/index.json
 ```
 
-The `index.json` file lists the available log pages and the latest page's last sequence number. An operator that last synced to sequence 4820 fetches `index.json`, finds which pages contain sequences after 4820, downloads those pages, and applies the new entries. Pages are immutable once closed (a new page is opened when the current page exceeds a size threshold, typically 10 MB compressed). Immutability makes pages CDN-cacheable indefinitely.
+The `index.json` file lists the available log pages and the latest page's last sequence number. An operator that last synced to sequence 4820 fetches the head and `index.json`, finds which pages contain sequences after 4820, downloads those pages, and applies the new entries. Pages are immutable once closed (a new page is opened when the current page exceeds a size threshold, typically 10 MB compressed). Immutability makes pages CDN-cacheable indefinitely.
 
 A new operator that has never synced the feed downloads the **full snapshot**: a single large NDJSON.gz file containing all current entries as of a known sequence number. The feed provides snapshots at:
 
@@ -233,11 +217,51 @@ A new operator that has never synced the feed downloads the **full snapshot**: a
 
 After loading the snapshot, the operator switches to incremental sync from the snapshot's sequence number forward. The snapshot + incremental approach means a new operator can onboard a large dataset (tens of millions of entries) efficiently without paginating through millions of incremental log entries.
 
-**No authentication required for reads.** Static curation feeds are public by design. Any operator can read any feed; there is no API key, no subscription credential, no access control. The integrity of the feed comes from the cryptographic signatures on the individual CurationEntries — each entry is signed by the curator's declared key, and the authority of the signature can be verified independently of the hosting infrastructure. A malicious CDN that serves modified entries cannot forge valid signatures without the curator's private key. This means operators don't need to trust the CDN; they trust the signatures.
+**The exact-match index (optional).** A feed MAY publish a Bloom filter and prefix buckets covering the exact (`sha256`) subjects of its entries up to some sequence number. They never cover `pdq` subjects. An operator that uses them instead of the snapshot MUST still follow the log from the filter's `covers_sequence_through` onward, both to see newer entries and to perform retroactive matching.
+
+The Bloom filter is at:
+
+```
+/feeds/example-authority/bloom.bin
+```
+
+An operator downloads it once per head that changes it, and checks exact hashes locally. A negative means the hash is definitely not covered. A positive means it may be, and the operator fetches the bucket for that hash to confirm or discard the match. At about 10 bits per element (1% false-positive rate, 7 hash functions), a filter is 12.5 MB for 10 million subjects and 62.5 MB for 50 million.
+
+**Prefix buckets.** Each bucket holds every entry with an exact subject whose `hash_value` begins with a given 4 hex characters:
+
+```
+/feeds/example-authority/entries/a3f9.ndjson
+```
+
+There are 65,536 buckets, `0000` through `ffff`. A bucket file contains, one per line in ascending sequence order, every entry with sequence ≤ `covers_sequence_through` that has at least one `sha256` subject whose `hash_value` starts with the bucket's prefix. The operator compares the full `hash_type`, `hash_scope`, and `hash_value` of each subject locally. A superseding entry MUST list every subject of the entry it supersedes, so that both always land in the same buckets.
+
+A CDN could serve an empty bucket to hide an entry, so buckets are committed to by `buckets.bin`: 65,536 SHA-256 digests of 32 bytes each (2 MiB), one per bucket in prefix order. A bucket with no entries has the digest of the empty byte string (`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`); the curator MAY omit its file, and a `404` response is then valid only if the table holds that digest. Operators MUST verify every bucket against `buckets.bin`, and `buckets.bin` against the head.
+
+**What a bucket fetch reveals.** The Bloom check is local and reveals nothing. A bucket fetch reveals to the feed host and CDN the first 16 bits of one of the operator's content hashes, when the operator made the request, and its network address. Because operators fetch only after a Bloom positive, a fetch also tells the host that the content is probably curated: it is either a true match or one of the roughly 1% false positives. If the bucket holds only a few entries, the host can usually guess which one matched. Bucketing therefore protects the hashes of content that is not curated, which is most content, and gives little protection to content that is. An operator that does not accept this leakage downloads the full dataset instead.
+
+**Access control.** Feeds are public by default: any operator can read them, with no credential. A public list of hashes, however, tells anyone who holds harmful material whether it is on the list, and which edits evade it. Child-safety hash lists are distributed only to vetted providers under agreement for this reason. Therefore:
+
+- A feed that contains any entry with a `legal/*` reason MUST NOT be publicly readable. Its declaration sets `feed_access` to `"restricted"`. Every request for any of its feed files (head, index, pages, snapshots, Bloom filter, buckets) MUST carry an RFC 9421 signature by the requesting operator (Chapter 19), and the feed host MUST refuse requests from operators the curator has not admitted. How the curator admits operators is a matter for its agreements with them, not for this specification.
+- A curator that also publishes public categories MUST publish them in a separate feed with its own Authority Declaration on a different host.
+- The Authority Declaration itself is always public, so that anyone can see who the curator is and how to request access.
+
+Integrity does not depend on access control: the head and entry signatures protect a restricted feed exactly as they protect a public one.
 
 ### CurationEntry Wire Format
 
-A CurationEntry is a JSON object. One entry occupies one line in an NDJSON file. The fields are:
+A CurationEntry is stored as an attached JWS (Chapter 34) in the General JSON Serialization, with `corundumType` `"CurationEntry"`. Its payload is the entry object below. One entry occupies one line in an NDJSON file, so the JWS MUST be written without line breaks. As stored:
+
+```json
+{"payload":"<base64url of the entry bytes>","signatures":[{"protected":"<base64url of the protected header>","signature":"<base64url of the Ed25519 signature>"}]}
+```
+
+The decoded protected header:
+
+```json
+{"alg":"Ed25519","crit":["corundumType"],"corundumType":"CurationEntry","kid":"key-1"}
+```
+
+The decoded payload:
 
 ```json
 {
@@ -248,13 +272,13 @@ A CurationEntry is a JSON object. One entry occupies one line in an NDJSON file.
     {
       "hash_type": "sha256",
       "hash_scope": "media-bytes",
-      "hash_value": "a3f9c2d1e8b74f6a9c3e1d2b5f8a7c4e...",
+      "hash_value": "<64 hex chars: SHA-256 of the image file>",
       "media_type": "image/jpeg"
     },
     {
       "hash_type": "pdq",
       "hash_scope": "perceptual-image",
-      "hash_value": "f3a1b2c4d5e6f7a8b9c0d1e2f3a4b5c6",
+      "hash_value": "<64 hex chars: PDQ hash of the image>",
       "pdq_quality": 97,
       "match_threshold": 31
     }
@@ -265,68 +289,51 @@ A CurationEntry is a JSON object. One entry occupies one line in an NDJSON file.
   "ordinal": 1.0,
   "evidence": null,
   "expires": null,
-  "supersedes": null,
-  "signature": {
-    "algorithm": "ed25519",
-    "key_id": "key-1",
-    "value": "3EqB7vN2..."
-  }
+  "supersedes": null
 }
 ```
 
 **Field definitions:**
 
-`type` (string, REQUIRED): Always `"CurationEntry"`. Allows parsers to distinguish entry types in mixed NDJSON streams.
+`type` (string, REQUIRED): Always `"CurationEntry"`.
 
 `version` (integer, REQUIRED): Always `1` for this version of the spec.
 
-`sequence` (integer, REQUIRED): Monotonically increasing integer assigned by the curator, unique within this feed. Sequence numbers MUST be assigned in order of `issued` time. Gaps are allowed (e.g., if entries are deleted) but sequence numbers MUST NOT be reused.
+`sequence` (integer, REQUIRED): Assigned by the curator, unique within this feed. Sequence numbers MUST be assigned in order of `issued` time, MUST be strictly increasing in log order, and MUST NOT be reused.
 
 `subjects` (array, REQUIRED, minimum 1 element): The content being curated. Each element is a subject object (defined below).
 
-`authority` (string, REQUIRED): URL of the Authority Declaration that governs this entry. MUST be the URL at which the declaration is currently served. Operators MUST verify that the declaration at this URL contains the key that signed the entry.
+`authority` (string, REQUIRED): URL of the Authority Declaration that governs this entry. MUST equal the declaration's `id`.
 
 `issued` (string, REQUIRED): ISO 8601 datetime with UTC offset (`Z`), second precision. When the judgment was made.
 
 `reason` (string, REQUIRED): A `category/subcode` reason string from the defined taxonomy (Chapter 29). Implementations MUST reject entries with unrecognized reason strings as malformed.
 
-`ordinal` (number, REQUIRED): A numeric score whose semantics are defined per category (Chapter 29). MUST be a finite IEEE 754 double. `NaN` and `Infinity` are not valid.
+`ordinal` (number, REQUIRED): The strength of the judgment, from `0.0` to `1.0` inclusive (Chapter 29). Values outside that range MUST be rejected.
 
-`evidence` (string or null, OPTIONAL): A CID or URL pointing to supporting evidence. If present, MUST be either a valid CID (base32lower) or a valid HTTPS URL. Operators MAY fetch evidence but are not required to.
+`evidence` (string or null, OPTIONAL): A CID or URL pointing to supporting evidence. If present, MUST be either a valid CID (Chapter 33) or a valid HTTPS URL. Operators MAY fetch evidence but are not required to.
 
 `expires` (string or null, OPTIONAL): ISO 8601 datetime with UTC offset. After this time, operators MUST treat the entry as if it were never received. MUST be strictly later than `issued`.
 
-`supersedes` (integer or null, OPTIONAL): The sequence number of an earlier entry in this feed that this entry replaces. Operators that have applied the superseded entry MUST unapply it and apply this entry instead. The superseded entry's sequence number MUST be lower than this entry's sequence number.
-
-`signature` (object, REQUIRED): Defined below.
+`supersedes` (integer or null, OPTIONAL): The sequence number of an earlier entry in this feed that this entry replaces. The superseded entry's sequence number MUST be lower than this entry's, and this entry MUST list every subject of the superseded entry. Operators that have applied the superseded entry MUST unapply it and apply this entry instead.
 
 **Subject object fields:**
 
-`hash_type` (string, REQUIRED): One of `sha256`, `pdq`, `tmk-pdq`, `chromaprint`, `simhash`.
+`hash_type`, `hash_scope` (strings, REQUIRED): One of the defined pairs in Chapter 28.
 
-`hash_scope` (string, REQUIRED): One of `media-bytes`, `media-pixels`, `perceptual-image`, `perceptual-video`, `perceptual-audio`, `text-exact`, `text-normalized`.
-
-`hash_value` (string, REQUIRED): The hash value, hex-encoded lowercase. For `pdq`, 256 bits (64 hex characters). For `sha256`, 256 bits (64 hex characters).
+`hash_value` (string, REQUIRED): The hash value, as defined for the pair in Chapter 28.
 
 `media_type` (string, OPTIONAL): The MIME type of the content, if known. Informational only.
 
 `pdq_quality` (integer, OPTIONAL): For `pdq` hashes, the PDQ quality score (0–100) of the source image. Images below quality 50 produce unreliable hashes; operators MAY skip matching for low-quality hashes.
 
-`match_threshold` (integer, OPTIONAL): For perceptual hashes, the maximum Hamming distance at which two hashes are considered to match. If absent, the default threshold for the hash type applies: 31 bits for PDQ (out of 256). Curators that have verified high-confidence hashes MAY specify a lower threshold.
+`match_threshold` (integer, OPTIONAL): For `pdq` hashes, the maximum Hamming distance (out of 256 bits) at which two hashes match. If absent, the threshold is 31. Curators MAY specify a lower threshold for higher precision.
 
-**Signing:**
-
-The `signature.value` field contains a base64url-encoded Ed25519 signature over the **canonical form** of the entry: the entry object serialized to canonical JSON (NFKC-normalized, keys sorted lexicographically, no insignificant whitespace) with the `signature` field omitted entirely. The signing procedure is identical to the canonical JSON signing procedure in Chapter 33. Implementations MUST NOT include the `signature` field in the signed bytes.
-
-`signature.algorithm` (string, REQUIRED): Always `"ed25519"` for this version of the spec.
-
-`signature.key_id` (string, REQUIRED): The `key_id` of the key in the Authority Declaration that produced this signature. MUST match exactly one key in the declaration.
-
-`signature.value` (string, REQUIRED): Base64url-encoded (no padding) signature bytes.
+**Signing.** The entry is signed per Chapter 34. The `kid` is the `key_id` of a key in the curator's Authority Declaration. Operators MUST reject an entry unless every signature verifies, at least one signature is present, and each `kid` names a key that the current declaration lists and that is authorized for the entry's `reason` (`delegate_for`, below).
 
 ### Authority Declaration Wire Format
 
-An Authority Declaration is a JSON object served at the curator's well-known URL (see Feed Discovery below). It MUST be served over HTTPS.
+An Authority Declaration is stored and served as an attached JWS (Chapter 34) with `corundumType` `"AuthorityDeclaration"`, signed by a root key (`delegate_for` null) that the declaration itself lists. It is served at the curator's well-known URL (see Feed Discovery below) over HTTPS. Its decoded payload:
 
 ```json
 {
@@ -337,12 +344,13 @@ An Authority Declaration is a JSON object served at the curator's well-known URL
     "name": "Example Safety Organization",
     "type": "nonprofit",
     "url": "https://safety.example",
-    "registration": "US 501(c)(3) EIN 12-3456789"
+    "registration": "<registration identifier>"
   },
   "jurisdiction_claims": ["global"],
   "governance_url": "https://safety.example/governance",
   "appeal_url": "https://safety.example/appeals",
-  "feed_url": "https://cdn.curator.example/feeds/safety",
+  "feed_url": "https://feeds.curator.example/feeds/safety",
+  "feed_access": "restricted",
   "hash_capabilities": [
     { "hash_type": "sha256", "hash_scope": "media-bytes" },
     { "hash_type": "pdq",    "hash_scope": "perceptual-image" }
@@ -351,29 +359,28 @@ An Authority Declaration is a JSON object served at the curator's well-known URL
   "keys": [
     {
       "key_id": "key-1",
-      "algorithm": "ed25519",
-      "public_key_multibase": "z6MkhaXgBZDvotDkL...",
+      "alg": "Ed25519",
+      "public_key_multibase": "<z6Mk… multibase Ed25519 public key>",
       "created_at": "2024-01-01T00:00:00Z",
-      "expires_at": null,
       "delegate_for": null
     },
     {
       "key_id": "key-2-classifier",
-      "algorithm": "ed25519",
-      "public_key_multibase": "z6MkvT9aBcDe...",
+      "alg": "Ed25519",
+      "public_key_multibase": "<z6Mk… multibase Ed25519 public key>",
       "created_at": "2024-06-01T00:00:00Z",
-      "expires_at": null,
-      "delegate_for": ["legal/csam-detected"]
+      "delegate_for": ["legal/csam-suspected"]
+    },
+    {
+      "key_id": "key-3-feed",
+      "alg": "Ed25519",
+      "public_key_multibase": "<z6Mk… multibase Ed25519 public key>",
+      "created_at": "2024-06-01T00:00:00Z",
+      "delegate_for": ["feed-head"]
     }
   ],
   "valid_from": "2024-01-01T00:00:00Z",
-  "valid_until": null,
-  "supersedes": null,
-  "signature": {
-    "algorithm": "ed25519",
-    "key_id": "key-1",
-    "value": "7TrC9wP1..."
-  }
+  "valid_until": null
 }
 ```
 
@@ -383,7 +390,7 @@ An Authority Declaration is a JSON object served at the curator's well-known URL
 
 `version` (integer, REQUIRED): Always `1`.
 
-`id` (string, REQUIRED): The canonical URL at which this declaration is served. MUST match the URL from which it was fetched.
+`id` (string, REQUIRED): The URL at which this declaration is served. MUST match the URL from which it was fetched.
 
 `organization.type` (string, REQUIRED): One of `government`, `nonprofit`, `commercial`, `community`.
 
@@ -391,71 +398,117 @@ An Authority Declaration is a JSON object served at the curator's well-known URL
 
 `jurisdiction_claims` (array of strings, REQUIRED): ISO 3166-1 alpha-2 country codes, or `"global"`. An entry of `"global"` means the curator claims authority applicable to all jurisdictions. Operators MAY give different weight to jurisdiction claims based on their own legal context.
 
-`feed_url` (string, REQUIRED): Base URL of the static curation feed. The sharded entries, Bloom filter, log, and snapshots are served relative to this URL.
+`feed_url` (string, REQUIRED): Base URL of the static curation feed. All feed files are served relative to this URL.
 
-`hash_capabilities` (array, REQUIRED): Hash type and scope pairs that this curator produces. Operators use this to know which hash types to compute when checking content against this curator's feed.
+`feed_access` (string, REQUIRED): `"public"` or `"restricted"` (Chapter 32, Access control). MUST be `"restricted"` if `reason_capabilities` includes any `legal/*` reason.
 
-`reason_capabilities` (array of strings, REQUIRED): The reason codes this curator publishes. Operators MAY subscribe selectively — an operator that does not want editorial judgments can subscribe to a curator but ignore entries with `reason` in the `editorial/` category.
+`hash_capabilities` (array, REQUIRED): Hash pairs (Chapter 28) that this curator produces. Operators use this to know which hashes to compute when checking content against this curator's feed.
 
-`keys[].delegate_for` (array of strings or null, REQUIRED): If null, this is the root key, authorized to sign any entry and to sign the declaration itself. If an array, this is a delegate key authorized only to sign entries whose `reason` matches one of the listed patterns. Patterns are exact reason strings or category prefixes (e.g., `"legal"` matches all `legal/*` reason codes). A delegate key MUST NOT sign the Authority Declaration itself; only the root key may.
+`reason_capabilities` (array of strings, REQUIRED): The reason codes this curator publishes. Operators MAY subscribe selectively — an operator that does not want editorial judgments can subscribe to a curator but ignore entries with `reason` in the `editorial/` category. Operators MUST reject entries whose reason is not listed here.
 
-`keys[].expires_at` (string or null, OPTIONAL): If set, the key is invalid after this time. Operators MUST reject entries signed by an expired key.
+`keys[].alg` (string, REQUIRED): The key's JOSE algorithm from the registry in Chapter 36. A signature's `alg` MUST equal the `alg` of the key its `kid` names.
+
+`keys[].public_key_multibase` (string, REQUIRED): For `Ed25519`, the multicodec `ed25519-pub` prefix (`0xed 0x01`) followed by the 32-byte public key, encoded as base58btc multibase (beginning `z6Mk`).
+
+`keys[].delegate_for` (array of strings or null, REQUIRED): If null, this is a root key, authorized to sign any entry, any feed head, and the declaration itself. If an array, this is a delegate key authorized only for the listed patterns: an exact reason string, a category prefix (e.g., `"legal"` matches all `legal/*` reason codes), or `"feed-head"`, which authorizes signing feed heads. A delegate key MUST NOT sign the Authority Declaration itself.
+
+A key is valid for as long as the current declaration lists it. To revoke a key, the curator removes it from the declaration; operators then reject every entry it signed, so before removing a key, the curator re-issues the entries it signed under another key as new entries that supersede them.
 
 `valid_until` (string or null, OPTIONAL): If set, the entire declaration is invalid after this time. Operators MUST re-fetch the declaration before this time to get a renewed or replacement declaration.
 
-`supersedes` (string or null, OPTIONAL): URL of the prior declaration this one replaces. Operators that have cached the prior declaration MUST replace it with this one.
+### Feed Head Wire Format
 
-The `signature` field covers the declaration with the `signature` field omitted, using canonical JSON, identical to CurationEntry signing.
-
-### Bloom Filter Binary Format
-
-The Bloom filter file at `/feeds/{authority}/bloom.bin` has the following layout:
-
-```
-Offset  Size   Field
-──────  ─────  ─────────────────────────────────────────────
-0       4      Magic: 0x434F524E ("CORN" in ASCII)
-4       1      Version: 0x01
-5       3      Reserved: 0x000000
-8       8      m: bit-array size in bits (uint64, big-endian)
-16      2      k: number of hash functions (uint16, big-endian)
-18      6      Reserved: 0x000000000000
-24      ceil(m/8)  Bit array, MSB-first packing
-```
-
-Total header size: 24 bytes. Total file size: 24 + ceil(m/8) bytes.
-
-**Bit packing**: Bit index `i` resides in byte `floor(i/8)`, at bit position `7 - (i mod 8)` (MSB = bit 7). Bit 0 of the array is the most significant bit of byte 0.
-
-**Hash function**: For an input byte sequence `x`:
-1. Compute `h1_bytes = SHA-256(x)`. Interpret the first 8 bytes as a big-endian uint64: `h1`.
-2. Compute `h2_bytes = SHA-256(0x01 || x)` (prepend a single byte `0x01`). Interpret the first 8 bytes as a big-endian uint64: `h2`.
-3. For `i = 0` to `k-1`: the bit index to set or test is `(h1 + i * h2) mod m`.
-
-All arithmetic is unsigned 64-bit, with natural wraparound on overflow.
-
-**Input to the hash function**: For a CurationEntry subject, the input is the concatenation of the `hash_type` string (UTF-8, no null terminator), a single `0x00` byte, and the `hash_value` bytes (the hex-decoded binary of the hash value, not the hex string). For a SHA-256 subject with hash value `a3f9c2...`, the input is `"sha256\x00" || <32 binary bytes>`.
-
-A Bloom filter MUST be accompanied by a metadata file at `/feeds/{authority}/bloom-metadata.json`:
+The feed head is an attached JWS (Chapter 34) with `corundumType` `"CurationFeedHead"`, served at `{feed_url}/head.jws`. It MUST be signed by a key whose `delegate_for` is null or includes `"feed-head"`. Its decoded payload:
 
 ```json
 {
+  "type": "CurationFeedHead",
   "version": 1,
   "authority": "https://curator.example/.well-known/corundum-curator",
-  "generated_at": "2025-01-15T12:00:00Z",
-  "covers_sequence_through": 48293,
-  "entry_count": 2847392,
-  "bit_count": 27255849,
-  "hash_function_count": 7,
-  "target_false_positive_rate": 0.01,
-  "hash_derivation": "sha256-double",
-  "bloom_sha256": "d4e5f6a7b8c9..."
+  "head_sequence": 9031,
+  "previous_sha256": "<64 hex chars: SHA-256 of head 9030's bytes>",
+  "issued": "2025-01-15T12:05:00Z",
+  "expires": "2025-01-17T12:05:00Z",
+  "latest_entry_sequence": 48293,
+  "index_sha256": "<64 hex chars: SHA-256 of log/index.json>",
+  "open_page_sha256": "<64 hex chars: SHA-256 of the open log page>",
+  "exact_index": {
+    "covers_sequence_through": 48000,
+    "element_count": 2847392,
+    "bloom_sha256": "<64 hex chars: SHA-256 of bloom.bin>",
+    "buckets_sha256": "<64 hex chars: SHA-256 of buckets.bin>"
+  }
 }
 ```
 
-`bloom_sha256` is the hex-encoded SHA-256 of the `bloom.bin` file, allowing operators to detect truncated or corrupted downloads before parsing.
+**Field definitions:**
 
-Operators MUST verify the magic bytes and version field before using the filter. Operators MUST verify `bloom_sha256` against the downloaded file. Operators MUST NOT use the filter if verification fails.
+`authority` (string, REQUIRED): MUST equal the declaration's `id`.
+
+`head_sequence` (integer, REQUIRED): `1` for the first head; each later head is exactly one greater than the one before it.
+
+`previous_sha256` (string or null, REQUIRED): SHA-256 of the exact bytes of head `head_sequence − 1`; null only for head `1`.
+
+`issued`, `expires` (strings, REQUIRED): ISO 8601 datetimes with UTC offset. `expires` MUST be later than `issued` and no more than 48 hours after it.
+
+`latest_entry_sequence` (integer, REQUIRED): The highest entry sequence number in the log. MUST equal `latest_sequence` in `index.json`.
+
+`index_sha256` (string, REQUIRED): SHA-256 of the exact bytes of `log/index.json`.
+
+`open_page_sha256` (string or null, REQUIRED): SHA-256 of the open log page as it stands at this head, or null if `index.json` lists no open page. This is how the open page, whose `sha256` in `index.json` is null, is authenticated.
+
+`exact_index` (object or null, REQUIRED): Null if the feed publishes no Bloom filter or buckets. Otherwise, `covers_sequence_through` is the highest entry sequence they cover, `element_count` is the number of elements inserted into the filter, and the two digests commit to `bloom.bin` and `buckets.bin`.
+
+The curator MUST keep every head it has published, at `{feed_url}/heads/{head_sequence}.jws`, so that operators can verify the chain.
+
+**Verifying a head.** On each poll, an operator:
+
+1. Fetches `head.jws` and verifies it per Chapter 34 with `corundumType` `"CurationFeedHead"`, using a key the current declaration authorizes for heads. It checks that `authority` matches and that `expires` has not passed.
+2. Compares `head_sequence` with the last head it accepted from this feed. If it is lower, the operator MUST reject the head. If it is equal, the head's bytes MUST be identical to the accepted head; two different validly signed heads with the same sequence are evidence of a compromised key or a faulty curator, and the operator MUST reject the new head and alert. If it is greater, the operator MUST fetch each intermediate head from `heads/` and verify that the `previous_sha256` links lead from the new head back to the accepted one. Only the new head's signature is checked; the hash links authenticate the intermediate heads.
+3. Fetches `index.json` and verifies it against `index_sha256`. Every closed page and snapshot listed in the previously accepted index MUST still be listed with the same `sha256`; otherwise the operator MUST reject the head, because the log is append-only.
+4. Verifies each page or snapshot it downloads against its `sha256` in the index, or, for the open page, against `open_page_sha256`; and, if it uses the exact-match index, verifies `bloom.bin` and `buckets.bin` against `exact_index`.
+
+An operator MUST NOT use any file that does not match the digest the head commits to. Files and head may briefly disagree while a CDN updates its caches, so curators SHOULD upload all other files before the head, and operators SHOULD retry a mismatch on the next poll. If the operator holds no unexpired head, it keeps applying the entries it has already accepted, treats the feed as stale, and alerts its administrators.
+
+### Bloom Filter Binary Format
+
+The Bloom filter file at `{feed_url}/bloom.bin` has the following layout:
+
+```
+Offset  Size       Field
+──────  ─────────  ─────────────────────────────────────────────
+0       4          Magic: 0x434F524E ("CORN" in ASCII)
+4       1          Version: 0x01
+5       3          Reserved: 0x000000
+8       8          m: bit-array size in bits (uint64, big-endian)
+16      2          k: number of hash functions (uint16, big-endian)
+18      6          Reserved: 0x000000000000
+24      ceil(m/8)  Bit array
+```
+
+Total file size: 24 + ceil(m/8) bytes. Unused bits in the last byte MUST be zero.
+
+**Bit packing.** Bit index `i` resides in byte `floor(i/8)` of the bit array, at bit position `7 - (i mod 8)`, where bit position 7 is the most significant bit. Bit 0 of the array is the most significant bit of the first byte.
+
+**Elements.** One element is inserted for each `sha256` subject of each covered entry:
+
+```
+x = hash_type || 0x00 || hash_scope || 0x00 || hash_value_bytes
+```
+
+`hash_type` and `hash_scope` are their ASCII strings, and `hash_value_bytes` is the 32-byte binary value (hex-decoded, not the hex string). Including the type and scope keeps a `text-exact` hash from matching a `media-bytes` hash of the same bytes.
+
+**Bit indexes** (Kirsch–Mitzenmacher double hashing):
+
+1. Compute `D = SHA-256(x)`.
+2. Let `h1` be bytes 0–7 of `D` and `h2` bytes 8–15 of `D`, each read as a big-endian unsigned 64-bit integer.
+3. For `i = 0` to `k − 1`, bit index `g_i = (h1 + i × h2) mod m`, computed exactly as an integer, not modulo 2^64. (For example, set `g_0 = h1 mod m`, `s = h2 mod m`, and `g_{i+1} = (g_i + s) mod m`.)
+
+To insert, set bits `g_0 … g_{k−1}`. To test, the result is positive only if all of them are set.
+
+**Example.** The `media-bytes` subject of a file containing the three bytes `abc` has `hash_value` `ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad`. Its element `x` is the 51 bytes `736861323536006d656469612d627974657300ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad`, and `D` is `e9ae108e32cf5f0abb1b17e6941eef5a54a90747bc7cea32dc132bebfc19ce3e`, so `h1` = 16838414259708714762 and `h2` = 13482396188558683994. With `m` = 27292419 and `k` = 7, the bit indexes are 25275801, 6832445, 15681508, 24530571, 6087215, 14936278, and 23785341.
+
+Operators MUST verify the magic bytes and version, and that the file length is `24 + ceil(m/8)`, before using the filter.
 
 ### index.json Schema
 
@@ -463,7 +516,7 @@ Operators MUST verify the magic bytes and version field before using the filter.
 {
   "version": 1,
   "authority": "https://curator.example/.well-known/corundum-curator",
-  "feed_url": "https://cdn.curator.example/feeds/safety",
+  "feed_url": "https://feeds.curator.example/feeds/safety",
   "latest_sequence": 48293,
   "generated_at": "2025-01-15T12:05:00Z",
   "pages": [
@@ -474,7 +527,7 @@ Operators MUST verify the magic bytes and version field before using the filter.
       "sequence_end": 500,
       "entry_count": 500,
       "size_bytes": 124832,
-      "sha256": "abcdef01...",
+      "sha256": "<64 hex chars>",
       "closed_at": "2024-06-01T00:00:00Z"
     }
   ],
@@ -494,7 +547,7 @@ Operators MUST verify the magic bytes and version field before using the filter.
       "sequence_through": 40000,
       "entry_count": 2700000,
       "size_bytes": 485234892,
-      "sha256": "fedcba98...",
+      "sha256": "<64 hex chars>",
       "generated_at": "2025-01-01T00:00:00Z"
     }
   ]
@@ -505,7 +558,7 @@ Operators MUST verify the magic bytes and version field before using the filter.
 
 `pages` (array): Closed log pages. A page is closed when it reaches the size threshold (RECOMMENDED: 10 MB compressed). Closed pages are immutable; their `sha256` MUST be set. Operators MUST verify `sha256` on closed pages. Pages MUST be listed in ascending order of `sequence_start`.
 
-`open_page` (object or null): The currently active page, still receiving entries. Its `sha256` is null because the file is still being written. Operators MUST NOT cache open pages; they MUST re-fetch the open page on every sync. An open page becomes a closed page when the curator seals it.
+`open_page` (object or null): The currently active page, still receiving entries. Its `sha256` is null because the file is still being written; the feed head carries its current digest. Operators MUST NOT cache open pages; they MUST re-fetch the open page on every sync. An open page becomes a closed page when the curator seals it.
 
 `snapshots` (array): Full-dataset snapshots. Each snapshot contains all entries with sequence number ≤ `sequence_through` as a single gzip-compressed NDJSON file. Operators doing initial sync SHOULD use the most recent snapshot as a starting point rather than reading all log pages from page 1.
 
@@ -519,25 +572,25 @@ Curators publish an Authority Declaration at a well-known HTTPS path on their do
 GET https://curator.example/.well-known/corundum-curator
 ```
 
-The response MUST be `Content-Type: application/json` and MUST be the Authority Declaration object defined above. The URL in the declaration's `id` field MUST exactly match the URL from which it was fetched (after following redirects). Operators MUST reject declarations where `id` does not match the fetch URL.
+The response MUST be `Content-Type: application/jose+json` and MUST be the Authority Declaration JWS defined above. The URL in the declaration's `id` field MUST exactly match the URL from which it was fetched (after following redirects). Operators MUST reject declarations where `id` does not match the fetch URL.
 
-The `feed_url` field in the declaration gives the base URL of the static feed. All feed paths (`/bloom.bin`, `/bloom-metadata.json`, `/log/index.json`, `/entries/...`, `/snapshots/...`) are resolved relative to this base URL.
+The `feed_url` field in the declaration gives the base URL of the static feed. All feed paths (`/head.jws`, `/heads/...`, `/log/index.json`, `/log/...`, `/snapshots/...`, and, if published, `/bloom.bin`, `/buckets.bin`, `/entries/...`) are resolved relative to this base URL.
 
-Operators configure curator subscriptions by storing the well-known URL. Everything else — feed location, hash capabilities, signing keys — is discovered from the declaration at that URL.
+Operators configure curator subscriptions by storing the well-known URL. Everything else — feed location, access mode, hash capabilities, signing keys — is discovered from the declaration at that URL.
 
 ### Polling Requirements
 
-Operators MUST re-fetch `index.json` at least once per hour for curators publishing in the `legal/` reason category.
+Operators MUST re-fetch `head.jws` at least once per hour for curators publishing in the `legal/` reason category.
 
-Operators SHOULD re-fetch `index.json` at least once per 24 hours for curators publishing in other categories.
+Operators SHOULD re-fetch `head.jws` at least once per 24 hours for curators publishing in other categories.
 
 Operators MUST use incremental sync (log pages from the last-seen sequence number) after initial load. Operators MUST NOT re-download snapshots on every poll cycle.
 
-Operators SHOULD respect `Cache-Control` and `ETag` headers on `index.json`. If the server returns `304 Not Modified`, the operator has no new entries to process.
+Operators SHOULD respect `Cache-Control` and `ETag` headers on `head.jws`. If the server returns `304 Not Modified`, the operator has no new entries to process.
 
 Operators MUST re-fetch the Authority Declaration at least once per 24 hours to detect key rotation, revocation, or declaration updates. If `valid_until` is set on the declaration, operators MUST re-fetch before that time.
 
-Operators MUST verify entry signatures on every entry processed, whether from snapshots, log pages, or the open page. An entry with an invalid signature MUST be discarded and MUST NOT be applied to the operator's policy. Operators SHOULD log the discarded entry for investigation.
+Operators MUST verify entry signatures on every entry processed, whether from snapshots, log pages, the open page, or buckets. An entry with an invalid signature MUST be discarded and MUST NOT be applied to the operator's policy. Operators SHOULD log the discarded entry for investigation.
 
 ---
 

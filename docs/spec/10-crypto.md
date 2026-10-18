@@ -44,7 +44,7 @@ For both forms, the signing input is defined by RFC 7515 §5.1 (attached) or RFC
 | Parameter | Value |
 |---|---|
 | `alg` | An algorithm from the registry in Chapter 36, for example `"Ed25519"`. |
-| `kid` | The signing key. For a user's Ed25519 content key, its IPNS name (`k51…`). For any other user key, its identifier in the user's DID document (Chapter 6). For an operator key, its key identifier in the Operator Manifest (Chapter 18). |
+| `kid` | The signing key. For a user's Ed25519 content key, its IPNS name (`k51…`). For any other user key, its identifier in the user's DID document (Chapter 6). For an operator key, its key identifier in the Operator Manifest (Chapter 18). For a curator key, its `key_id` in the curator's Authority Declaration (Chapter 30). |
 | `corundumType` | The type of the signed object, for example `"Activity"` or `"RootManifest"`. |
 | `crit` | `["b64", "corundumType"]` for detached signatures; `["corundumType"]` for attached. |
 | `b64` | `false`. Present only in detached signatures. |
