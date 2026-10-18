@@ -2,35 +2,50 @@
 
 ### Chapter 5: The Three-Layer Identity System
 
-Identity in Corundum is a three-layer system designed so that no single layer's failure is catastrophic. Each layer provides a different guarantee, and the layers reinforce each other.
+Identity in Corundum is a three-layer system designed so that no single layer's failure is catastrophic. Each layer provides a different guarantee, and the layers reinforce each other. From the top:
 
-**Layer 1: IPNS (Operational Identity).** A user's IPNS name — the hash of a cryptographic keypair — is their stable operational identifier. This keypair signs all content the user publishes. The IPNS name points to the user's RootManifest (their current profile, timeline, operator declaration, and social graph). This is the operational layer: the identifier operators and other users interact with on a daily basis.
+**Layer 1: Handles (human-readable names).** A handle is what people type and recognize. Corundum has two forms:
 
-In practice, operators resolve user manifests via operator HTTP APIs (`GET /corundum/v1/users/{ipns}/manifest`) rather than via DHT lookup. DHT resolution is slow (typically 30–60 seconds) and is reserved for bootstrap and fallback situations — used when an operator endpoint is unknown or unreachable. The DHT is the substrate; the operator API is the fast path.
+- **Account handles** look like email addresses: `alice@birdsite.example`. They belong to an operator's namespace, the way an email address belongs to a mail provider, and are resolved with WebFinger (Chapter 8).
+- **Domain handles** are a domain the user controls: `alice.example`. They are resolved with a DNS TXT record (Chapter 8).
 
-The blast radius of an IPNS key loss depends on which layer you still have. If you lose your IPNS private key but retain your DID recovery key, you can generate a new IPNS keypair, publish a new DID document declaring the new keypair, and broadcast a MigrationNotification. Your old content, signed with the old key, remains verifiable — signatures don't expire. Your new content will be signed with the new key. Your social graph and followers will update over time as their operators re-resolve your DID. The blast radius is temporary disruption and the loss of the ability to prove continuity between old and new content via key lineage (though the DID audit trail provides this instead).
+A handle is a convenience layer. If it stops resolving, the DID and everything below it are unaffected.
 
-**Layer 2: DID (Root of Trust).** Above the IPNS key sits a W3C Decentralized Identifier. The DID is the *canonical persistent* identifier for a user; the IPNS name is the *current operational key* associated with that DID. The distinction matters: operators MUST store the DID as the primary identifier for a user, not the IPNS name. The IPNS name is cached alongside the DID but treated as the current answer to the question "which key is this DID using right now?" — an answer that can change.
+**Layer 2: DID (the persistent identifier).** Every Corundum user is identified by a W3C Decentralized Identifier. The DID is the *canonical persistent* identifier: operators MUST store the DID as the primary identifier for a user, and every reference to a user in a protocol object names the DID. The DID never changes when the user changes operator, rotates keys, or changes handle.
 
-The DID document declares which IPNS key(s) belong to this identity, what handles the user claims, and what operators serve them. The DID provides recovery: if a user loses their IPNS private key, or if an operator goes rogue, the DID's recovery key can authorize a new IPNS keypair and re-anchor the identity. This is why the DID, not the IPNS name, is the canonical identifier: the IPNS name can be replaced under DID authority, but the DID persists.
+The DID document is changed only by the user's **update keys**, which the user holds and operators MUST NOT hold (Chapter 7). This is what makes the user, not any operator, the owner of the identity: an operator can stop serving a user, but it cannot take the identity, rewrite it, or block the user from moving.
 
-The blast radius of DID document loss depends on the DID method. For `did:web`, DID document loss means losing control of the domain that hosts the DID document. This is serious but recoverable if the user still has the signing key — they can publish a new DID document at a new domain and broadcast the change. For `did:plc`, the operation log is distributed, so individual operator failures don't affect it. The blast radius is bounded in all cases where the user retains cryptographic keys.
+Corundum accepts three DID methods:
 
-Corundum supports three DID methods:
+- **`did:webvh`** (the default). A `did:web`-style identifier with a verifiable history: every change is an entry in a hash-chained log signed by the user's update keys, with pre-rotation of those keys for recovery. Operators can host these DIDs for their users under paths of their own domain (`did:webvh:<SCID>:birdsite.example:users:alice`) without being able to change them.
+- **`did:plc`** (opt-in). An operation-log method from the AT Protocol ecosystem, run as a single public registry (`plc.directory`). Operations are signed by the user's rotation keys and the log is publicly auditable, but the registry is one service, not a distributed system.
+- **`did:key`** (opt-in). The DID is the public key itself. It has no document to update, no update keys, and no recovery: whoever holds the key is the identity, forever.
 
-- `did:web` — DNS-based, easy to deploy, widely understood, but depends on domain availability and DNS security. Operators can issue `did:web` DIDs on behalf of their users (e.g., `did:web:birdsite.example:users:alice`).
-- `did:plc` — operation-log-based, AT Protocol compatible, no domain required, designed specifically for the social media portability use case.
-- `did:key` — self-describing, instant to create, maximum privacy, but no recovery if the key is lost. The DID IS the public key; there is no separate recovery key; the DID cannot be updated.
+Plain `did:web` is not accepted. A `did:web` document has no signed history, so whoever controls the web server can rewrite it, which would let an operator that hosts a user's DID take the identity. A `did:webvh` controller may publish a parallel `did:web` copy for older tools, but Corundum resolvers MUST resolve the `did:webvh` log and ignore the copy.
 
-**Layer 3: Handles (Human-Readable Names).** Handles are identifiers like `alice.birdsite.example` or `@美玲@鸟歌.中文网`. They're human-readable aliases for the cryptographic identity below them. Handles are resolved via DNS TXT records, DID service entries, IPNS resolution, or ENS/HNS lookups.
+**Layer 3: IPNS (the content key and content pointer).** The DID document names the user's current **IPNS name** (Chapter 6). The IPNS name does two jobs:
 
-The blast radius of handle DNS failure is limited: the handle stops resolving, but the underlying IPNS name and DID are unaffected. Users who already know Alice's IPNS name can still reach her. The handle is a convenience layer; losing it is annoying but not catastrophic.
+- It is the user's **content-signing key**. For Ed25519, the IPNS name embeds the public key itself (as an identity multihash), so anyone who has the name has the key. This key signs the user's activities and RootManifests (Chapter 34).
+- It is the **pointer to the user's RootManifest** (Chapter 9). An IPNS record is a small signed object, issued by the IPNS key, that names the current RootManifest's CID and carries a sequence number so readers can reject old records.
 
-The full verification chain is: Handle → DID → IPNS → RootManifest → Handle. If any link breaks, verification fails and the system reports which link is the problem. This chain property means that identity verification is not just "is this signature valid?" but "is the signer who they claim to be, through a verifiable chain of declarations?"
+An IPNS record is self-verifying, so it does not matter who serves it. Readers fetch it the fast way first: from the user's operator, using the standard IPFS delegated routing endpoint (`GET /routing/v1/ipns/{name}`), and then fetch the RootManifest by CID. DHT resolution (typically 30–60 seconds) is the fallback for when the operator is unreachable.
+
+The IPNS name changes whenever the content key changes, for example when the user moves to a new operator. Nobody needs to remember it: the DID always names the current one.
+
+**Who holds the content key.** By default the user's operator holds the content key and signs on the user's behalf, so a user like Alice, who never sees a key, gets a familiar experience. A user may instead hold the content key on their own devices (**self-custody**), so that their operator cannot publish anything in their name. Either way, the update keys stay with the user, and they can replace the content key at any time by changing the DID document. A `did:key` user is always self-custodied: their only key is their identity.
+
+**The verification chain.** Handle → DID → IPNS → RootManifest, with each step checked against the one before:
+
+1. The handle resolves to a DID (WebFinger or DNS), and the DID document lists the handle back in `alsoKnownAs` (Chapter 8).
+2. The DID document names the current IPNS name and operator endpoint (Chapter 6).
+3. The IPNS record, signed by that IPNS key, names the RootManifest CID.
+4. The RootManifest is signed by every content key the DID document lists, and its identity block names the same DID (Chapter 9).
+
+If any step fails, verification fails and the system reports which step. Identity verification is therefore not just "is this signature valid?" but "is the signer who they claim to be, through a verifiable chain of declarations?"
 
 ### Chapter 6: DID Documents
 
-A DID document for a Corundum user is a JSON-LD document that declares the keys, services, and handles associated with an identity. Here is an example DID document for a user named Alice:
+A DID document for a Corundum user declares the user's content keys, their operator, and their handles. Here is an example for Alice:
 
 ```json
 {
@@ -38,114 +53,111 @@ A DID document for a Corundum user is a JSON-LD document that declares the keys,
     "https://www.w3.org/ns/did/v1",
     "https://corundum.example/ns/v1"
   ],
-  "id": "did:web:birdsite.example:users:alice",
-  "verificationMethod": [
-    {
-      "id": "did:web:birdsite.example:users:alice#signing-key",
-      "type": "Ed25519VerificationKey2020",
-      "controller": "did:web:birdsite.example:users:alice",
-      "publicKeyMultibase": "z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK"
-    },
-    {
-      "id": "did:web:birdsite.example:users:alice#recovery-key",
-      "type": "Ed25519VerificationKey2020",
-      "controller": "did:web:birdsite.example:users:alice",
-      "publicKeyMultibase": "z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuias8sisDArDJF"
-    }
-  ],
-  "authentication": [
-    "#signing-key"
-  ],
-  "capabilityInvocation": [
-    "#recovery-key"
+  "id": "did:webvh:<SCID>:birdsite.example:users:alice",
+  "alsoKnownAs": [
+    "acct:alice@birdsite.example"
   ],
   "service": [
     {
-      "id": "did:web:birdsite.example:users:alice#corundum-identity",
+      "id": "did:webvh:<SCID>:birdsite.example:users:alice#corundum",
       "type": "CorundumIdentity",
       "serviceEndpoint": {
-        "ipnsName": "k51qzi5uqu5dj4nl2xvwya5k4y6a4xy9jh0jrh5e5c5w0n9i7r3i4j8fmq4gh",
-        "operatorEndpoint": "https://birdsite.example/corundum/v1",
-        "handles": ["alice.birdsite.example"],
-        "role": "primary",
-        "status": "active"
+        "ipnsName": "<IPNS name of Alice's content key>",
+        "operatorEndpoint": "https://birdsite.example/corundum/v1"
       }
     }
-  ],
-  "alsoKnownAs": [
-    "https://alice.birdsite.example",
-    "at://alice.birdsite.example"
   ]
 }
 ```
 
-Each field serves a specific purpose. The `verificationMethod` array lists every key associated with this identity. The signing key is the operational key that signs posts day-to-day. The recovery key is ideally stored offline (a hardware security key, a paper backup in a safe) and is only used for key rotation and recovery operations.
+The `CorundumIdentity` service entry is what connects the DID to the Corundum content layer. A DID document MUST contain exactly one. Its `serviceEndpoint` object has these members:
 
-The `authentication` array says which keys can authenticate as this identity. The `capabilityInvocation` array says which keys can invoke capabilities — in Corundum's use, this means which keys can authorize key rotations and migrations.
+| Member | Required | Meaning |
+|---|---|---|
+| `ipnsName` | REQUIRED | The user's current IPNS name: the Ed25519 content-signing key and the pointer to the RootManifest. |
+| `operatorEndpoint` | REQUIRED | The base URL of the user's operator. |
+| `additionalKeys` | OPTIONAL | Further content-signing keys, each an object with `kid`, `alg` (Chapter 36), and `publicKeyMultibase`. Used to add an algorithm alongside Ed25519 (Chapter 35). |
 
-The `service` entry for `CorundumIdentity` is what connects the DID to the Corundum operational layer. It specifies the IPNS name (the current operational key), the operator endpoint (where to send API requests), any handles associated with this identity, whether this is the primary identity or a secondary persona, and whether the identity is active or migrating or deactivated.
+The user's **content-signing keys** are the key in `ipnsName` plus every key in `additionalKeys`. Together they form the required set: every object the user signs carries a signature from each of them (Chapter 34).
 
-The `alsoKnownAs` field links this identity to other representations: a web profile URL, an AT Protocol handle. This enables cross-protocol identity claims.
+Content keys appear only in the service entry, and in no verification relationship (`authentication`, `assertionMethod`, or any other). A content key may be held by the user's operator, so it must not be usable as the user for anything outside Corundum. Generic DID software does not treat service entries as keys, so it never treats a content key as able to authenticate as the user or assert claims for them. Other protocols may add their own keys and service entries to the same document; Corundum ignores them.
 
-A single DID can control multiple Corundum identities. Alice might have a primary persona on Birdsite and a photography persona on ArtBase, both controlled by the same DID, each with its own IPNS key, timeline, and social graph. She would have two `CorundumIdentity` service entries in her DID document, one marked `role: "primary"` and one `role: "secondary"`. This enables pseudonymous personas with a shared root of trust — Alice can prove she controls both without revealing which posts belong to which persona to audiences that don't know about the connection.
+The update keys that change this document are not in it. For `did:webvh` they are parameters of the DID log (`updateKeys`, with pre-rotation through `nextKeyHashes`); for `did:plc` they are the operation log's rotation keys.
 
-### Chapter 7: Key Rotation and Recovery
+The `alsoKnownAs` array lists the user's handles: `acct:alice@birdsite.example` for an account handle, `dns:alice.example` for a domain handle. This is the DID's half of the bidirectional handle check (Chapter 8).
 
-Key rotation is a first-class operation in Corundum. The protocol distinguishes two scenarios: cooperative migration, where the old operator participates in the transition, and hostile migration, where it does not.
+**For `did:key` users** there is no document to carry a service entry. The DID and the IPNS name encode the same Ed25519 public key, so a resolver derives the IPNS name directly from the DID, and the RootManifest names the operator endpoint. Such a user has exactly one content key, which never changes.
 
-**Cooperative migration**: Both the old and new operator sign the transition. The flow is:
+**One DID, one Corundum identity.** A DID document has one `CorundumIdentity` entry, so one DID is one timeline. Everything in a DID document is public, so anyone who resolves it sees everything it lists. A user who wants personas that cannot be linked to each other uses a separate DID for each.
 
-1. Alice decides to move from Operator A to Operator B.
-2. Alice authenticates to Operator B and initiates the migration process.
-3. Operator B generates a new IPNS keypair for Alice (or accepts one she provides).
-4. Alice uses her DID recovery key to authorize the new IPNS keypair in her DID document.
-5. Operator A signs a `MigrationConsent` record, acknowledging the transfer.
-6. Operator B begins fetching Alice's content archive from IPFS.
-7. Operator B publishes a new RootManifest under Alice's (updated) IPNS name, declaring itself as the new operator.
-8. Both operators co-sign a MigrationNotification.
-9. The MigrationNotification is broadcast to known peers and directory services.
+### Chapter 7: Key Rotation, Migration, and Recovery
 
-In a cooperative migration, nothing is lost. Alice's complete content history, social graph, reply trees, and followers cache all transfer. The migration audit trail records the full history with signatures from all parties.
+Corundum has two kinds of keys, and they are replaced in different ways:
 
-**Hostile migration**: The old operator is uncooperative — it may have shut down, refused to release the key, gone technically dark, or is actively adversarial. The flow is:
+- **Update keys** change the DID document. The user holds them; operators never do. They are replaced through the DID method's own mechanism: a pre-rotated next key for `did:webvh`, or a higher-priority rotation key for `did:plc`. A user SHOULD keep one update key on their own device for routine changes and a **recovery key** offline (a hardware key, or a paper backup in a safe). For `did:webvh` the recovery key is the pre-rotated next key; for `did:plc` it is a higher-priority rotation key.
+- **The content key** (the IPNS key) signs content and points to the RootManifest. Replacing it is a change to the DID document: the user's update key signs a new DID log entry naming a new `ipnsName`.
 
-1. Alice invokes DID authority. She uses her DID recovery key (which she holds independently of any operator) to publish a new IPNS keypair declaration in her DID document.
-2. Alice authenticates to Operator B with the DID recovery key and the new IPNS keypair.
-3. Operator B begins fetching Alice's content archive from IPFS. If Operator A was still running, the content is still pinned there; if Operator A has shut down, other operators that cached Alice's content can serve it.
-4. Operator B publishes a new RootManifest under the new IPNS name.
-5. Operator B broadcasts a MigrationNotification signed with the new IPNS key and the DID recovery key. The presence of the DID recovery key signature is what allows receiving operators to trust this as an authorized migration despite the absence of Operator A's signature.
+**Moving to a new operator** is a content key rotation plus a change of `operatorEndpoint`, made by the user:
 
-The MigrationNotification contains: the DID, the old IPNS name, the new IPNS name, timestamp, a migration type (`cooperative` or `hostile`), and signatures. For a cooperative migration, it carries signatures from both operators. For a hostile migration, it carries the new operator's signature and the DID recovery key signature.
+1. Alice tells Operator B she wants to move there.
+2. Operator B generates a new content key for her. A self-custody user generates it on their own device instead.
+3. Alice's client signs a DID update with her update key, naming the new `ipnsName` and B's `operatorEndpoint`.
+4. Operator B fetches Alice's archive from IPFS and pins it. Every object is content-addressed, so B verifies everything it fetches.
+5. Operator B publishes a RootManifest under the new IPNS name, signed with the new content key. It commits to the same archive tree: the same epochs, with the same CIDs.
+6. Operator B sends a MigrationNotification to the operators of Alice's followers and to the operators she follows.
 
-Receiving operators update their DID→IPNS cache upon receiving a valid MigrationNotification. Operators that did not receive the notification will discover the new IPNS name naturally when their cache TTL expires (recommended: 24 hours). On cache expiry, operators re-resolve via the DID document rather than relying on the cached IPNS name.
+The DID update is the only step that carries authority, and only Alice can make it. A **cooperative** old operator makes the move faster: it can hand over the reply index and followers cache directly and re-key Alice's encrypted lists for B (Chapter 25). A **hostile** old operator cannot stop the move. Everything B needs is in IPFS, and can be fetched from Operator A's node while it still runs or from any other operator that cached it.
 
-**The did:key tradeoff:** Users who chose `did:key` made a deliberate tradeoff. The `did:key` method derives the DID directly from the public key. There is no separate recovery key, no operation log, no rotation mechanism. The DID cannot be updated. This provides maximum privacy (no external service knows your DID; it's just math) and maximum self-sovereignty (no one can interfere with your identity), at the cost of no recovery path.
+The old operator still holds the old content key and can keep publishing under the old IPNS name. That does not matter: the DID no longer names that key, so nothing it signs is authorized (Chapter 34).
 
-For `did:key` users, a hostile migration where the old operator controls the IPNS key results in a permanent identity break. The user can create a new identity, but they cannot prove continuity with the old one. Their followers will not automatically find them. This is not a bug — it is the documented consequence of the `did:key` tradeoff. Users who care about recovery should use `did:web` or `did:plc` with an offline recovery key.
+**The MigrationNotification** is a hint, not an authority. It contains the DID, the old and new IPNS names, and the new operator endpoint, and it is sent as an authenticated inter-operator request (Chapter 19). A receiving operator MUST NOT act on its contents directly; it re-resolves the DID and uses what the DID document says. Operators that miss the notification find the change when their cached copy of the DID document expires. Operators MUST NOT cache a DID document for longer than 24 hours, and SHOULD use the DID method's own cache guidance (for `did:webvh`, the log's `ttl`, default one hour).
+
+**If the old operator served the DID itself.** A `did:webvh` DID hosted on Operator A's domain (`did:webvh:<SCID>:a.example:users:alice`) stops resolving if A stops serving its log. To keep users able to leave, operators that create `did:webvh` DIDs for their users MUST set `portable: true` in the first log entry. The user can then move the DID to B's domain with a log entry signed by their update key. The SCID stays the same, and the new document lists the old DID in `alsoKnownAs`. Operators MUST key users by the SCID-bearing DID, accept such a move when the log proves it, and SHOULD keep a copy of the DID log of every user they follow, so that a hostile host deleting the log does not erase the record.
+
+**Losing keys.**
+
+- **Lost or compromised content key:** the user signs a DID update naming a new content key. The old key's signatures on content already in the archive stay valid by inclusion (Chapter 34); anything signed with it afterwards is rejected.
+- **Lost update key:** the user recovers with their recovery key.
+- **Lost update key and recovery key:** the identity can no longer be changed. Content keeps working, but the user can never move operator or replace the content key again.
+
+**The `did:key` tradeoff.** A `did:key` user's DID is their content key. They can still move operators: they publish a RootManifest naming a new operator endpoint, because they hold the key themselves. But there is no rotation and no recovery. If the key is lost or stolen, the identity is gone, and a new identity cannot prove continuity with the old one. Users who care about recovery should use `did:webvh` or `did:plc` with an offline recovery key.
 
 ### Chapter 8: Handle Resolution
 
-Handles serve a human need that cryptographic identifiers don't meet: humans recognize `@alice.birdsite.example` where they would not recognize `k51qzi5uqu5dj4nl2xvwya5k4y6a4xy9jh0jrh5e5c5w0n9i7r3i4j8fmq4gh`. Handles are the socially meaningful layer of identity — the name people use, search for, and recognize.
+Handles serve a human need that cryptographic identifiers don't meet: humans recognize `alice@birdsite.example` where they would not recognize a DID or an IPNS name. Handles are the socially meaningful layer of identity: the name people use, search for, and recognize.
 
-The reason handles require bidirectional verification is to prevent impersonation attacks. Consider what would happen with unidirectional verification. If only the DID needed to claim a handle (but the DNS record didn't need to point back to the DID), then anyone could publish a DID document claiming to be `alice.birdsite.example`. The claim alone would pass verification. Bidirectional verification requires that both the DID claims the handle AND the DNS record at `alice.birdsite.example` points to the DID. An attacker who doesn't control `alice.birdsite.example`'s DNS cannot publish a valid DNS record pointing to their malicious DID. An attacker who does control `alice.birdsite.example`'s DNS but doesn't control Alice's DID could publish a DNS record, but it wouldn't match any DID that claims the handle.
+**Bidirectional verification.** A handle is verified only when both directions agree: the handle resolves to a DID, and that DID's document lists the handle in `alsoKnownAs`. Either direction alone allows impersonation. If only the DID's claim counted, anyone could publish a DID document claiming `alice@birdsite.example`. If only the handle's record counted, a domain owner could point a handle at someone else's DID and make it appear that person chose it.
 
-The spec defines four handle resolution methods:
-
-**DNS method**: A TXT record at `_corundum.alice.birdsite.example` contains the DID and IPNS name. For example:
+**Account handles (WebFinger).** An account handle `alice@birdsite.example` is resolved with WebFinger (RFC 7033):
 
 ```
-_corundum.alice.birdsite.example. 3600 IN TXT "did=did:web:birdsite.example:users:alice ipns=k51qzi5uqu5..."
+GET https://birdsite.example/.well-known/webfinger?resource=acct:alice@birdsite.example
 ```
 
-This is the simplest and most widely deployed method. It leverages the existing DNS infrastructure that every domain already uses. It depends on DNSSEC for security against tampering, though implementations should validate as best they can given DNSSEC deployment realities.
+The JSON Resource Descriptor in the response contains a link to the DID:
 
-**DID method**: The DID document's `alsoKnownAs` field lists the handle. Verification checks that the DID claims the handle and the handle points back to the DID. This is useful when the DID document is the authoritative source.
+```json
+{
+  "subject": "acct:alice@birdsite.example",
+  "links": [
+    {
+      "rel": "https://corundum.example/ns/v1/did",
+      "href": "did:webvh:<SCID>:birdsite.example:users:alice"
+    }
+  ]
+}
+```
 
-**ENS method**: For Ethereum Name Service handles (e.g., `alice.eth`), the ENS registry stores a text record with the DID and IPNS name. This provides a blockchain-anchored handle for users who prefer that trust model.
+The DID document then lists `acct:alice@birdsite.example` in `alsoKnownAs`. Account handles are the form operators give their users. WebFinger is also how Mastodon and other ActivityPub software look up accounts, so the same endpoint can serve both.
 
-**IPNS method**: The RootManifest itself declares handles with their verification method. This is the fallback for self-sovereign identities that prefer not to depend on DNS or external systems.
+An account handle belongs to the operator's namespace, as an email address belongs to its mail provider. The operator controls the WebFinger answer, so it can reassign the handle, but it cannot make another DID claim it: bidirectional verification fails unless that DID's document also lists it. A user who leaves an operator normally leaves its account handles behind, along with their followers' memory of them. Their DID, followers, and content move with them. A user who wants a handle no operator controls uses a domain handle.
 
-Implementations must support DNS and should support DID. The other methods are optional. The verification chain is always: resolve the handle → get a DID → check that the DID claims this handle → verified.
+**Domain handles (DNS).** A domain handle `alice.example` is resolved with a TXT record:
 
----
+```
+_corundum.alice.example. 3600 IN TXT "did=did:webvh:<SCID>:birdsite.example:users:alice"
+```
 
+The DID document then lists `dns:alice.example` in `alsoKnownAs`. The record names only the DID, not the IPNS name, so it does not go stale when the content key changes. Its integrity depends on DNS, so resolvers SHOULD validate DNSSEC where it is deployed.
+
+**Requirements.** Implementations MUST support both methods. The verification is always: resolve the handle to a DID, check that the DID document lists the handle, and only then display the handle as the user's.

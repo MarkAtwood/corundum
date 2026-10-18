@@ -18,7 +18,7 @@ This property makes the entire archive self-verifying. The signed RootManifest c
 
 At the top is the **RootManifest**, the mutable entry point for a user's entire Corundum presence. It is pointed to by the user's IPNS name and contains:
 
-- Identity block (public key, display name, avatar, DID reference)
+- Identity block (the user's DID, display name, avatar)
 - Operator declaration (current operator endpoint, when declared)
 - Timeline pointer (latest entry sequence number, total count, current chunk CID, archive root CID)
 - Social graph pointer (CID of following list, block list, mute list)
@@ -84,7 +84,7 @@ Here is an example Note (a short text post) in its unsigned form, with the commo
     "https://corundum.example/ns/v1"
   ],
   "@type": "Note",
-  "attributedTo": "ipns://k51qzi5uqu5dj4nl2xvwya5k4y6a4xy9jh0jrh5e5c5w0n9i7r3i4j8fmq4gh",
+  "attributedTo": "did:webvh:<SCID>:birdsite.example:users:alice",
   "content": "Just finished the most fascinating book on distributed systems.",
   "published": "2025-03-15T14:22:11Z",
   "language": "en",
@@ -93,8 +93,7 @@ Here is an example Note (a short text post) in its unsigned form, with the commo
     {"type": "Hashtag", "name": "#distributedsystems"},
     {"type": "Hashtag", "name": "#books"}
   ],
-  "to": ["https://www.w3.org/ns/activitystreams#Public"],
-  "cc": ["ipns://k51qzi5uqu5dj4nl2x.../followers"]
+  "to": ["https://www.w3.org/ns/activitystreams#Public"]
 }
 ```
 
@@ -107,7 +106,7 @@ An example reply with a content warning:
     "https://corundum.example/ns/v1"
   ],
   "@type": "Note",
-  "attributedTo": "ipns://k51qzi5uqu5dj4nl2xvwya5k4y6a4xy9jh0jrh5e5c5w0n9i7r3i4j8fmq4gh",
+  "attributedTo": "did:webvh:<SCID>:birdsite.example:users:alice",
   "inReplyTo": "bafyreib2vekw73m2esv7m3n7ldvikfojqxj3u5ufwtfpwjw6uktrnxlcbq",
   "content": "This reminds me of the incident in 2003 where...",
   "summary": "Discussion of historical system failure",
@@ -120,7 +119,7 @@ An example reply with a content warning:
 
 **Key fields in the activity object:**
 
-`attributedTo` is the IPNS identity of the author — the URI form `ipns://k51...` rather than a bare IPNS name. This is the primary authorship claim; it is what the signing record's signature must correspond to.
+`attributedTo` is the author's DID. This is the primary authorship claim: the signing record must carry signatures from the content keys that this DID's document lists (Chapter 34).
 
 `published` is the author-declared timestamp. It is signed as part of the activity, so it represents what the author claimed the publication time to be. Operators may add their own receipt timestamps, but the `published` field is the author's timestamp.
 
@@ -130,15 +129,15 @@ An example reply with a content warning:
 
 `inReplyTo` is the identifier of the activity being replied to. Its presence is what triggers the reply protocol: when an operator processes a new activity with `inReplyTo` set, it must route the activity through the inter-operator reply submission process to the parent post's author's operator.
 
-`tag` contains hashtags (type `Hashtag`), mentions (type `Mention`), and emoji reactions. Hashtags are used for feed discovery; mentions notify the mentioned user's operator. Mentions carry the IPNS identity of the mentioned user alongside the display handle, so the operator can route the mention notification without a separate identity lookup:
+`tag` contains hashtags (type `Hashtag`), mentions (type `Mention`), and emoji reactions. Hashtags are used for feed discovery; mentions notify the mentioned user's operator. Mentions carry the DID of the mentioned user alongside the display handle, so the operator can route the mention notification without a separate identity lookup:
 
 ```json
 "tag": [
   {"type": "Hashtag", "name": "#distributedsystems"},
   {
     "type": "Mention",
-    "name": "@alice.birdsite.example",
-    "href": "ipns://k51qzi5uqu5dj4nl2xvwya5k4y6a4xy9jh0jrh5e5c5w0n9i7r3i4j8fmq4gh"
+    "name": "@alice@birdsite.example",
+    "href": "did:webvh:<SCID>:birdsite.example:users:alice"
   }
 ]
 ```
@@ -149,7 +148,7 @@ An example reply with a content warning:
 {
   "@context": ["https://www.w3.org/ns/activitystreams", "https://corundum.example/ns/v1"],
   "@type": "Announce",
-  "attributedTo": "ipns://k51qzi5...bob...",
+  "attributedTo": "did:webvh:<SCID>:meetup.example:users:bob",
   "object": "bafyreib2vekw73m2esv7m3n7ldvikfojqxj3u5ufwtfpwjw6uktrnxlcbq",
   "published": "2025-03-15T16:00:00Z",
   "to": ["https://www.w3.org/ns/activitystreams#Public"]
@@ -166,7 +165,7 @@ When Bob's operator processes a Boost, it notifies Alice's operator (via a light
 {
   "@context": ["https://www.w3.org/ns/activitystreams", "https://corundum.example/ns/v1"],
   "@type": "Like",
-  "attributedTo": "ipns://k51qzi5...alice...",
+  "attributedTo": "did:webvh:<SCID>:birdsite.example:users:alice",
   "object": "bafyreib2vekw73m2esv7m3n7ldvikfojqxj3u5ufwtfpwjw6uktrnxlcbq",
   "published": "2025-03-15T14:30:00Z"
 }
@@ -178,7 +177,7 @@ Custom emoji reactions use the `EmojiReact` type from the Corundum namespace ext
 {
   "@context": ["https://www.w3.org/ns/activitystreams", "https://corundum.example/ns/v1"],
   "@type": "corundum:EmojiReact",
-  "attributedTo": "ipns://k51qzi5...alice...",
+  "attributedTo": "did:webvh:<SCID>:birdsite.example:users:alice",
   "object": "bafyreib2vekw73m2esv7m3n7ldvikfojqxj3u5ufwtfpwjw6uktrnxlcbq",
   "content": "🎉",
   "published": "2025-03-15T14:30:01Z"
@@ -252,14 +251,14 @@ A tombstone object:
 {
   "@type": "corundum:Tombstone",
   "deletedContent": "bafyreib2vekw73m2esv7m3n7ldvikfojqxj3u5ufwtfpwjw6uktrnxlcbq",
-  "deletedBy": "ipns://k51qzi5uqu5dj4nl2xvwya5k4y6a4xy9jh0jrh5e5c5w0n9i7r3i4j8fmq4gh",
+  "deletedBy": "did:webvh:<SCID>:birdsite.example:users:alice",
   "deletedAt": "2025-03-20T09:14:00Z",
   "reason": "user-request",
   "retainUntil": null
 }
 ```
 
-`deletedContent` is the CID of the activity that was deleted. `deletedBy` is the IPNS identity of the user who deleted it (always the author in a standard deletion; may be an operator in a curation-mandated removal). `reason` is one of: `user-request` (user's own deletion), `curation-removal` (operator removed content per curation policy), `operator-policy` (operator policy override), or `legal-hold-release` (content retained under legal hold and now released). `retainUntil` is set when a legal hold requires the content to be retained despite the deletion request; it is the date when the hold expires and the content may be physically deleted.
+`deletedContent` is the CID of the activity that was deleted. `deletedBy` is the DID of the user who deleted it (always the author in a standard deletion; may be an operator in a curation-mandated removal). `reason` is one of: `user-request` (user's own deletion), `curation-removal` (operator removed content per curation policy), `operator-policy` (operator policy override), or `legal-hold-release` (content retained under legal hold and now released). `retainUntil` is set when a legal hold requires the content to be retained despite the deletion request; it is the date when the hold expires and the content may be physically deleted.
 
 The tombstone is published to IPFS (it gets its own CID), making it independently verifiable: anyone can check that a legitimate deletion occurred and when.
 
@@ -283,7 +282,7 @@ The `EditRecord`:
   "@type": "corundum:EditRecord",
   "originalContent": "bafyreib2vekw73m2esv7m3n7ldvikfojqxj3u5ufwtfpwjw6uktrnxlcbq",
   "revisedContent": "bafyreid7new4contentcid...",
-  "editedBy": "ipns://k51qzi5...alice...",
+  "editedBy": "did:webvh:<SCID>:birdsite.example:users:alice",
   "editedAt": "2025-03-16T08:30:00Z",
   "editNote": "Fixed typo in title"
 }

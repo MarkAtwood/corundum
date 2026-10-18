@@ -38,7 +38,7 @@ A: Corundum is a protocol that lets independently operated social media servers 
 
 A: ActivityPub ties your identity to your server. `@alice@social.example` only works as long as `social.example` is running. If the server shuts down, Alice loses her identity, her post history, and her follower list. Moving requires the old server's cooperation and still loses post history.
 
-Corundum separates identity from hosting. Alice's identity is an IPNS name (a hash of her public key) anchored to a W3C DID document. Her content lives in IPFS, addressed by content hash. Her operator hosts her — but her identity and content exist independently of her operator. Moving operators is like switching ISPs: the number, the files, and the contacts all come with her.
+Corundum separates identity from hosting. Alice's identity is a W3C DID that only keys she holds can change; it names her current operator and the key that signs her content. Her content lives in IPFS, addressed by content hash. Her operator hosts her — but her identity and content exist independently of her operator. Moving operators is like switching ISPs: the number, the files, and the contacts all come with her.
 
 Corundum also adds a formalized curation layer that ActivityPub lacks: cryptographically signed moderation feeds with mandatory governance declarations and appeal processes. The block enforcement model is stronger: blocks reject at the inter-operator level, not just client-side filtering.
 
@@ -49,17 +49,17 @@ Corundum also adds a formalized curation layer that ActivityPub lacks: cryptogra
 A: The closest architectural comparison. Both use content-addressed data and DIDs. The key differences:
 
 - **Storage substrate**: AT Protocol uses its own repository format served by PDS nodes. Corundum uses IPFS directly — any IPFS node can serve Corundum content.
-- **Global indexer**: AT Protocol defines a "Big Graph Service" that crawls all PDS nodes. Corundum has no global relay or indexer by design; federation is operator-to-operator.
-- **DID methods**: AT Protocol standardized on `did:plc`. Corundum supports `did:web`, `did:plc`, and `did:key` — more flexibility, more to implement.
-- **Curation**: AT Protocol's labeler system is functional but less formally specified — no mandatory governance declarations, no required accountability mechanism. Corundum requires curators to publish authority declarations with governance and appeal processes before any judgments.
+- **Relays and indexers**: AT Protocol has Relays (originally called the Big Graph Service) that aggregate repository updates from PDS nodes into a firehose, and AppViews that index it. Corundum has no relay or indexer layer; federation is operator-to-operator.
+- **DID methods**: AT Protocol supports `did:plc` and `did:web`. Corundum uses `did:webvh` by default and also accepts `did:plc` and `did:key`; it does not accept plain `did:web`, because a `did:web` document has no signed history.
+- **Curation**: AT Protocol labels are signed by the labeler's key, but the protocol does not require labelers to declare how they decide or how to appeal. Corundum requires curators to publish authority declarations with governance and appeal processes before any judgments.
 
-Neither is strictly superior. AT Protocol has millions of users and production validation. Corundum has a more formally specified curation system and stronger decentralization (no global relay).
+Neither is strictly superior. AT Protocol has millions of users and production validation. Corundum has mandatory curator accountability and no relay layer.
 
 ---
 
 **Q: How is this different from Nostr?**
 
-A: Nostr gets the core identity insight right (keypair = identity) and the storage separation right (relays are just storage, not identity). But it leaves unspecified the things that become serious problems at scale: key recovery (lose your key, lose your identity — no recovery), content archive structure (your content is wherever relays have cached it, with no formal portability), inter-relay authentication (none), and moderation (ad hoc per relay).
+A: Nostr gets the core identity insight right (keypair = identity) and the storage separation right (relays are just storage, not identity). But it leaves unspecified the things that become serious problems at scale: key recovery (lose your key, lose your identity — no recovery), content archive structure (your content is wherever relays have cached it, with no formal portability), and moderation (ad hoc per relay).
 
 Corundum adds DID-based recovery on top of keypair identity, a formalized content-addressed archive with O(1) lookups, authenticated inter-operator communication via RFC 9421, and the full curation infrastructure. It's more complex than Nostr, and the complexity serves specific purposes.
 
@@ -74,17 +74,17 @@ Corundum's curation system separates three things:
 2. **Authority**: Before publishing any judgments, curators must publish an Authority Declaration: who they are, how they make decisions, and how judgments can be appealed. No anonymous curators.
 3. **Enforcement**: Operators subscribe to curator feeds and apply their own policies. The curator says what; the operator decides what to do about it.
 
-The practical consequence: a CSAM hash database publishes once and propagates to every subscribing operator on their next poll. No per-platform integration. No bilateral agreement for every pair. And an operator serving adults can subscribe to the CSAM database (legally required in most jurisdictions) without subscribing to the NSFW classifier — because those are different policy decisions.
+The practical consequence: a curator publishes once and its judgments reach every subscribing operator on their next poll. No per-platform integration, and no bilateral agreement for every pair. Legal categories such as CSAM hash lists are the exception to open publication: those lists are distributed only to vetted providers, so their feeds require authenticated access. And an operator serving adults can subscribe to a CSAM feed without subscribing to an NSFW classifier, because those are different policy decisions.
 
 ---
 
 **Q: How does block enforcement work? Why is it "stronger" than other platforms?**
 
-A: When Alice blocks Steve, Alice's operator rejects all reply submissions from Steve's identity at the protocol level. Steve cannot submit a reply to Alice's post; his operator receives `BLOCKED_USER` rejection. The reply never appears in Alice's thread — not just hidden from Alice's view, but absent for everyone.
+A: When Alice blocks Steve, Alice's operator rejects all reply submissions from Steve's identity at the protocol level. Steve cannot submit a reply to Alice's post; his operator receives a `REPLY_REJECTED` error with reason `blocked-user`. The reply never enters Alice's reply tree — not just hidden from Alice's view, but absent from her thread for everyone. Steve can still say what he likes on his own timeline; he cannot attach it to Alice's conversation.
 
 On most existing platforms, blocks are client-side filters. You don't see the person's content, but they can still reply to your posts, still visible to your other followers, still using your content as a harassment venue — you just don't see it directly. Corundum's block is enforced at the inter-operator authentication layer, not the client layer.
 
-Retroactive removal is also architectural: when Alice blocks Steve, her operator scans her existing reply trees and removes Steve's prior replies, republishing the updated tree CIDs. The removal is propagated, not just cached locally.
+Retroactive removal is also architectural: when Alice blocks Steve, her operator scans her existing reply trees and removes Steve's prior replies, republishing her reply index. The removal is propagated, not just cached locally.
 
 ---
 
@@ -92,15 +92,15 @@ Retroactive removal is also architectural: when Alice blocks Steve, her operator
 
 A: When Earl moves from his self-hosted server to Birdsite:
 
-1. Earl provides his IPNS private key (or a migration key) to Birdsite.
-2. Birdsite resolves Earl's existing RootManifest, reads the ArchiveIndex, and fetches his complete content archive from IPFS. Every item is verified by CID.
-3. Birdsite publishes a new RootManifest under Earl's IPNS name, declaring itself as the new operator.
-4. Birdsite broadcasts a MigrationNotification signed with Earl's key.
-5. Other operators that receive the notification update their DID→IPNS cache.
+1. Birdsite generates a new content-signing key for Earl.
+2. Earl's app signs an update to his DID document with his update key, naming Birdsite's new key and Birdsite as his operator. Earl never hands anyone a private key.
+3. Birdsite fetches his complete content archive from IPFS. Every item is verified by CID.
+4. Birdsite publishes a RootManifest under the new key, committing to exactly the same archive.
+5. Birdsite sends a MigrationNotification to the operators of Earl's followers, which re-resolve his DID and see the change.
 
-Earl's followers don't notice anything change. His IPNS name — the hash of his public key — is unchanged. His DID is unchanged. His handle is unchanged (if he controls his domain). His post history is intact. He turns off his old server.
+Earl's followers don't notice anything change. His DID is unchanged. His handle is unchanged (if he controls his domain). His post history is intact. He turns off his old server.
 
-In a hostile migration (old operator uncooperative or offline): Earl uses his DID recovery key to authorize a new IPNS keypair. The presence of the DID recovery key signature in the MigrationNotification is what proves the migration is authorized — even without the old operator's participation.
+A hostile old operator cannot stop this. The DID update is the only step that carries authority, and only Earl's update key can make it. Everything else Birdsite needs is in IPFS. The old operator still has the old content key, but Earl's DID no longer names it, so nothing it signs is accepted.
 
 ---
 
@@ -109,12 +109,13 @@ In a hostile migration (old operator uncooperative or offline): Earl uses his DI
 A: IPFS content addressing is designed for permanence — a CID is the hash of the content, and any node that has pinned it can serve it. This creates a genuine tension with GDPR's right to erasure.
 
 Corundum's approach:
-- The archive structure (ArchiveIndex, epochs, entries) remains intact for integrity. You can't remove entries from epochs without breaking the chain.
-- What can be removed is the content the entry points to: the operator unpins the activity from its IPFS node and publishes a tombstone. The entry's `content` field becomes null.
-- The operator distributes tombstone notifications to operators known to have requested that content, who are expected to unpin on receipt (SHOULD-level obligation).
-- For legal holds (`retainUntil`): content is hidden from display but retained in storage until the hold expires. GDPR Art. 17(3)(e) provides an explicit exception for legal proceedings.
+- The archive tree never changes once written. A deletion is a new signed tombstone entry that names the deleted post.
+- The operator unpins the deleted activity and its signing record from its IPFS node.
+- The operator notifies operators known to have fetched that content, who are expected to unpin it too (SHOULD-level obligation).
+- The deleted post's identifier stays in the archive tree. It is a hash, but a hash of personal data is still personal data under GDPR, so Corundum treats it that way and retains it on an integrity basis.
+- A legal hold binds only the operator that is subject to it; it never obliges other operators to keep content.
 
-Corundum does not claim to make IPFS GDPR-proof. It provides the mechanisms (tombstones, erasure notifications, retention metadata) that a GDPR-compliant deployment needs. Compliance depends on operators entering into data processing agreements with each other and faithfully implementing the tombstone pathway. The protocol provides the plumbing; the compliance depends on the humans operating it.
+Corundum does not claim to make IPFS GDPR-proof. It provides the mechanisms (tombstones, erasure notifications, retention metadata) that a GDPR-compliant deployment needs. Compliance depends on operators entering into data sharing agreements with each other and faithfully implementing the tombstone pathway. The protocol provides the plumbing; the compliance depends on the humans operating it.
 
 ---
 
@@ -151,7 +152,7 @@ A: The MVP scope covers the minimum needed to run a conforming operator:
 - Standard error envelope and cursor-based pagination for collection endpoints
 - SQLite for user records, DID→IPNS cache, and metadata indexes
 
-Deferred to post-MVP: DID layer (raw IPNS only for MVP), handle resolution, curation feed subscriptions beyond stub interface, chunked media, extensible ATD system, WebSocket/SSE event streams, user migration, post-quantum algorithm support.
+Deferred to post-MVP: `did:plc` and `did:key` (the MVP resolves `did:webvh` only), handle resolution, curation feed subscriptions beyond stub interface, chunked media, extensible ATD system, WebSocket/SSE event streams, user migration, post-quantum algorithm support.
 
 ---
 
@@ -175,7 +176,6 @@ Specifically, SQLite stores:
 - Content hash index (SHA-256 → list of entry CIDs; required for efficient retroactive curation matching)
 - Rate limiting counters (per-operator, per-user, rolling time windows)
 - Pending reply submission queue (for retry backoff)
-- Bloom filter parameters and pinned filter CIDs for block lists
 
 For a single-operator deployment, SQLite on local disk is entirely sufficient. Multi-node deployments will need a different approach; that's a post-MVP problem.
 
@@ -185,7 +185,7 @@ For a single-operator deployment, SQLite on local disk is entirely sufficient. M
 
 A: The reference implementation exposes the inter-operator backbone. Building a user-facing social platform on top of it means adding:
 
-1. A client-facing API (REST, GraphQL, whatever) for your own users — entirely your design, completely unspecified by Corundum
+1. A client-facing API (REST, GraphQL, whatever) for your own users — entirely your design and not part of the protocol (`docs/client-api/` describes a non-normative reference API you can use or ignore)
 2. A user interface (web app, mobile app)
 3. A recommendation algorithm for feed ranking — your choice
 4. Business logic for subscriptions, account tiers, etc. — your choice
@@ -200,9 +200,9 @@ Think of Corundum as the SMTP layer for social media. You don't think about SMTP
 
 A: Not directly out of the box — they speak different protocols. Bridge implementations are future work, explicitly listed in the spec as such.
 
-The data model compatibility makes ActivityPub bridges tractable at the content level: Corundum activities are ActivityStreams 2.0 objects, so the mapping exists. The identity model differences require careful handling (Mastodon `@alice@instance.social` vs. Corundum IPNS-anchored DID).
+Corundum activities are ActivityStreams 2.0 objects, so the vocabulary maps, but bridging is not easy. Corundum identifies posts by CID and authenticates them with detached signatures; ActivityPub expects dereferenceable `https` identifiers and HTTP Signatures. A bridge has to mint and serve `https` identities for Corundum content and vouch for it with its own keys. AT Protocol shares DIDs and content addressing, but its repositories, records, and labels are different structures, so a bridge there is a translation layer too.
 
-AT Protocol interoperability is more interesting: both use DIDs and content-addressed data, so a bridge that speaks both protocols is conceptually cleaner than an ActivityPub bridge.
+Mastodon *client apps* are a different matter: `docs/client-api/13-mastodon-shim.md` describes a non-normative shim that lets them talk to a Corundum operator. That is a client API, not a federation bridge.
 
 Neither bridge is in the reference implementation's initial scope.
 

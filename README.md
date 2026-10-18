@@ -18,7 +18,7 @@ Every major social platform is a silo. Your identity, content, and social graph 
 
 Corundum separates four concerns that existing platforms conflate:
 
-1. **Identity** — cryptographic keypairs you hold, not accounts in their database
+1. **Identity** — a DID that only keys you hold can change, not an account in their database
 2. **Content storage** — IPFS-addressed by content hash, independent of any server
 3. **Service provision** — operators who host you, but can't hold your data hostage
 4. **Content moderation** — curators who publish signed judgments; operators who enforce them
@@ -36,7 +36,7 @@ docs/
     00-preface.md               design philosophy
     01-overview.md              Part I  — The Big Picture
     02-comparison.md            Part II — vs. ActivityPub, AT Protocol, Nostr, SSB
-    03-identity.md              Part III — Three-layer identity (IPNS / DID / Handles)
+    03-identity.md              Part III — Three-layer identity (Handles / DID / IPNS)
     04-content-storage.md       Part IV — Archive structure, epochs, ArchiveIndex
     05-activity-types.md        Part V  — Activity objects, ATD extension system, media
     06-operators.md             Part VI — Operator manifests, inter-operator auth (RFC 9421)
@@ -58,7 +58,7 @@ The Rust implementation will live in `src/` once started.
 
 ## The Protocol in 60 Seconds
 
-**Identity**: A user is an Ed25519 keypair. Their IPNS name (hash of the public key) is their operational identifier. A W3C DID document provides key rotation and recovery on top of that. A human-readable handle (`@alice.example`) resolves bidirectionally to the DID.
+**Identity**: A user is a W3C DID (`did:webvh` by default), changed only by update keys the user holds. The DID document names the user's current IPNS name, which is both the Ed25519 key that signs their content and the pointer to their RootManifest. By default the operator holds that content key; users can hold it themselves instead. Handles look like email addresses (`alice@birdsite.example`, resolved with WebFinger) or are domains the user owns (`alice.example`, resolved with DNS), and are verified in both directions against the DID.
 
 **Content**: Posts are ActivityStreams 2.0 objects stored unsigned in IPFS, addressed by the CID of their exact stored bytes. A separate `SigningRecord` object establishes authorship. The user's timeline is a two-level Merkle archive (epochs → ArchiveIndex) with O(1) lookup by sequence number.
 
@@ -76,7 +76,7 @@ The specification is **complete and stable** for the core protocol. All major de
 
 - Detached signatures (activities stored unsigned; CID stability + resignature support)
 - DID as canonical user identifier (IPNS name is the current operational key)
-- Migration notifications (DID recovery key signs hostile migrations)
+- Migration by DID update (only the user's update key can move them; the old operator cannot block it)
 - Two-level ArchiveIndex (O(1) lookups, dropped redundant hash chain)
 - Downgrade attack prevention (require all signatures the sender's manifest declares)
 - Reply tree portability (first-class IPFS objects; data export as fallback)
