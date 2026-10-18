@@ -1,4 +1,4 @@
-## Part XIII: Content Retention Conflicts
+## Part XII: Content Retention Conflicts
 
 ### Chapter 39: When Rules Collide
 

@@ -1,4 +1,4 @@
-## Part XVI: Inter-Operator Event Streams
+## Part XV: Inter-Operator Event Streams
 
 ### Chapter 47: Design and Motivation
 

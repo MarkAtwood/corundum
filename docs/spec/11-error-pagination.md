@@ -1,4 +1,4 @@
-## Part XII: Error Handling and Pagination
+## Part XI: Error Handling and Pagination
 
 ### Chapter 37: The Error Envelope
 
@@ -70,7 +70,7 @@ Receivers MUST ignore unknown `details` fields. A receiver that gets an unknown 
 | `MANIFEST_INVALID` | 400 | false | The media manifest is malformed or inconsistent with its chunks. |
 | `UPLOAD_SESSION_EXPIRED` | 410 | false | The upload session no longer exists. Start a new session. |
 | `INVALID_CURSOR` | 400 | false | The cursor fails verification or does not match the request (Chapter 38). |
-| `RESUME_BUFFER_EXHAUSTED` | 410 | false | The requested resume sequence is older than the retained window (Part XVI, Chapters 48 and 50). `details.earliestSequence` REQUIRED. |
+| `RESUME_BUFFER_EXHAUSTED` | 410 | false | The requested resume sequence is older than the retained window (Part XV, Chapters 48 and 50). `details.earliestSequence` REQUIRED. |
 
 New codes are added by revising this registry.
 

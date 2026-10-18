@@ -1,4 +1,4 @@
-## Part XIV: What Corundum Doesn't Define
+## Part XIII: What Corundum Doesn't Define
 
 ### Chapter 40: Intentional Silences
 

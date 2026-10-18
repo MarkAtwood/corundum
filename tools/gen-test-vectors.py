@@ -1,4 +1,4 @@
-"""Generate the Chapter 45 test vectors (docs/spec/15-implementation-guide.md).
+"""Generate the Chapter 45 test vectors (docs/spec/14-implementation-guide.md).
 
 Oracles: pyca/cryptography, PyNaCl (libsodium) and the openssl CLI must produce
 identical Ed25519 signatures; CIDs and the IPNS name are computed by hand and with

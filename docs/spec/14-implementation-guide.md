@@ -1,4 +1,4 @@
-## Part XV: Implementation Guidance
+## Part XIV: Implementation Guidance
 
 ### Chapter 41: What a Minimal Operator Must Implement
 

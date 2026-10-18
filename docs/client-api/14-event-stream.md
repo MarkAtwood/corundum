@@ -1,6 +1,6 @@
 # Event Stream
 
-The event stream pushes real-time updates from an operator to its own users' client applications: new statuses on the home timeline, accepted replies in a thread the client is showing, notifications, and curation labels. This is part of the reference implementation's client/server API; it is not part of the Corundum protocol. The only event stream the protocol defines is the inter-operator stream (spec Chapters 47–52, `docs/spec/16-interop-streams.md`), which is a different endpoint with different authentication and semantics.
+The event stream pushes real-time updates from an operator to its own users' client applications: new statuses on the home timeline, accepted replies in a thread the client is showing, notifications, and curation labels. This is part of the reference implementation's client/server API; it is not part of the Corundum protocol. The only event stream the protocol defines is the inter-operator stream (spec Chapters 47–52, `docs/spec/15-interop-streams.md`), which is a different endpoint with different authentication and semantics.
 
 Accounts are identified by DID. Statuses are identified by their activity id (the activity's CID). The operator verifies remote content (spec Chapter 34) before pushing it to a client; the stream carries nothing the client could not also fetch through the HTTP endpoints.
 

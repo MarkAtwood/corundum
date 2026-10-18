@@ -33,23 +33,27 @@ When these layers are independent, moving operators is like switching ISPs: your
 docs/
   corundum-book.md              ← start here: index and quick-reference
   spec/
-    00-preface.md               design philosophy
-    01-overview.md              Part I  — The Big Picture
-    02-comparison.md            Part II — vs. ActivityPub, AT Protocol, Nostr, SSB
-    03-identity.md              Part III — Three-layer identity (Handles / DID / IPNS)
-    04-content-storage.md       Part IV — Archive structure, epochs, ArchiveIndex
-    05-activity-types.md        Part V  — Activity objects, ATD extension system, media
-    06-operators.md             Part VI — Operator manifests, inter-operator auth (RFC 9421)
-    07-reply-protocol.md        Part VII — Reply submission, validation, block enforcement
-    08-social-graph.md          Part VIII — Follows, blocks, Bloom filters
-    09-curation.md              Part IX — Curation feeds, hash types, authority declarations
-    10-crypto.md                Part X  — Signed bytes, JWS/Ed25519, cryptographic agility
-    11-event-streams.md         Part XI — WebSocket/SSE real-time events
-    12-error-pagination.md      Part XII — Error envelopes, cursor pagination
-    13-content-retention.md     Part XIII — GDPR, tombstones, legal holds
-    14-out-of-scope.md          Part XIV — Intentional silences
-    15-implementation-guide.md  Part XV — Minimal impl, common mistakes, test vectors, IPFS setup
-    appendices.md               Spec index and normative references
+    00-preface.md               design philosophy, BCP 14 conventions
+    01-overview.md              Part I    — The Big Picture
+    02-comparison.md            Part II   — vs. ActivityPub, AT Protocol, Nostr, SSB
+    03-identity.md              Part III  — Three-layer identity (Handles / DID / IPNS)
+    04-content-storage.md       Part IV   — Immutable archive, StateMap and ReplyMap, edits and deletes
+    05-activity-types.md        Part V    — ATD extension system, content references, media
+    06-operators.md             Part VI   — Operator manifests, inter-operator auth (RFC 9421)
+    07-reply-protocol.md        Part VII  — Reply submission, validation, reply trees, block enforcement
+    08-social-graph.md          Part VIII — Follows, blocks, mutes; encrypted portable lists
+    09-curation.md              Part IX   — Curation feeds, hash types, authority declarations
+    10-crypto.md                Part X    — Signed bytes, JWS/Ed25519, algorithm registry
+    11-error-pagination.md      Part XI   — Error envelope, cursor pagination
+    12-content-retention.md     Part XII  — GDPR, deletion, legal holds
+    13-out-of-scope.md          Part XIII — Intentional silences
+    14-implementation-guide.md  Part XIV  — Minimal impl, common mistakes, test vectors, IPFS setup
+    15-interop-streams.md       Part XV   — Inter-operator event streams
+    appendices.md               Normative references
+  client-api/                   Non-normative reference client API and Mastodon shim
+  analysis/                     Non-normative analyses (DNS and well-known names)
+tools/
+  gen-test-vectors.py           Regenerates the Chapter 45 test vectors
 ```
 
 The Rust implementation will live in `src/` once started.

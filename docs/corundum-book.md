@@ -17,14 +17,13 @@ All content lives in [`docs/spec/`](spec/).
 | [07-reply-protocol.md](spec/07-reply-protocol.md) | Part VII — The Reply Protocol (Ch 21–24) |
 | [08-social-graph.md](spec/08-social-graph.md) | Part VIII — The Social Graph (Ch 25–26) |
 | [09-curation.md](spec/09-curation.md) | Part IX — Curation (Ch 27–32) |
-| [10-crypto.md](spec/10-crypto.md) | Part X — Cryptographic Foundations (Ch 33–35) |
-| [11-event-streams.md](spec/11-event-streams.md) | Part XI — Event Streams (Ch 36) |
-| [12-error-pagination.md](spec/12-error-pagination.md) | Part XII — Error Handling and Pagination (Ch 37–38) |
-| [13-content-retention.md](spec/13-content-retention.md) | Part XIII — Content Retention Conflicts (Ch 39) |
-| [14-out-of-scope.md](spec/14-out-of-scope.md) | Part XIV — What Corundum Doesn't Define (Ch 40) |
-| [15-implementation-guide.md](spec/15-implementation-guide.md) | Part XV — Implementation Guidance (Ch 41–46) |
-| [16-interop-streams.md](spec/16-interop-streams.md) | Part XVI — Inter-Operator Event Streams (Ch 47–52) |
-| [appendices.md](spec/appendices.md) | Appendix A (Spec Index) and Appendix B (Normative References) |
+| [10-crypto.md](spec/10-crypto.md) | Part X — Cryptographic Foundations (Ch 33–36) |
+| [11-error-pagination.md](spec/11-error-pagination.md) | Part XI — Error Handling and Pagination (Ch 37–38) |
+| [12-content-retention.md](spec/12-content-retention.md) | Part XII — Content Retention Conflicts (Ch 39) |
+| [13-out-of-scope.md](spec/13-out-of-scope.md) | Part XIII — What Corundum Doesn't Define (Ch 40) |
+| [14-implementation-guide.md](spec/14-implementation-guide.md) | Part XIV — Implementation Guidance (Ch 41–46) |
+| [15-interop-streams.md](spec/15-interop-streams.md) | Part XV — Inter-Operator Event Streams (Ch 47–52) |
+| [appendices.md](spec/appendices.md) | Normative References |
 
 ## Quick Reference for Implementers
 
@@ -38,10 +37,10 @@ When implementing a specific component, read:
 - **Follows / blocks / social graph**: `08-social-graph.md`
 - **Curation feeds / content moderation**: `09-curation.md`
 - **Signed bytes / JWS signing / cryptographic agility**: `10-crypto.md`
-- **Event streams (WebSocket/SSE)**: `11-event-streams.md`
-- **Error handling / pagination**: `12-error-pagination.md`
-- **GDPR / content retention / deletion**: `13-content-retention.md`
-- **Minimal implementation / common mistakes / test vectors**: `15-implementation-guide.md`
-- **IPFS operational setup**: `15-implementation-guide.md` (Ch 46)
+- **Inter-operator event streams**: `15-interop-streams.md`
+- **Error handling / pagination**: `11-error-pagination.md`
+- **GDPR / content retention / deletion**: `12-content-retention.md`
+- **Minimal implementation / common mistakes / test vectors**: `14-implementation-guide.md`
+- **IPFS operational setup**: `14-implementation-guide.md` (Ch 46)
 
-Always read `00-preface.md` for design philosophy and `appendices.md` for normative references.
+Always read `00-preface.md` for design philosophy and `appendices.md` for normative references. The client/server API is not part of the protocol; `docs/client-api/` describes the reference implementation's non-normative API, including its client event stream and Mastodon shim.

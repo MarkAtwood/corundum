@@ -13,19 +13,19 @@
 | `https://corundum.example/ns/v1/did` | WebFinger link relation (extension URI) | `03-identity.md` Ch 8 | Marks the JRD link whose `href` is the DID | spec |
 | `/.well-known/did.jsonl` | Well-known URI (did:webvh method) | did:webvh spec; used by `03-identity.md` Ch 5 | DID log for a host-level DID `did:webvh:<SCID>:<host>` | user |
 | `/<path>/did.jsonl` | Path (did:webvh method) | did:webvh spec; example `users:alice` in `03-identity.md` Ch 5 | DID log for an operator-hosted DID; path chosen by the operator | operator (hosts), user (controls) |
-| `/routing/v1/ipns/{name}` | Path (IPFS Delegated Routing V1) | `03-identity.md` Ch 5, `15-implementation-guide.md` | Fast-path IPNS record fetch, at the `operatorEndpoint` origin | operator |
+| `/routing/v1/ipns/{name}` | Path (IPFS Delegated Routing V1) | `03-identity.md` Ch 5, `14-implementation-guide.md` | Fast-path IPNS record fetch, at the `operatorEndpoint` origin | operator |
 | `/ipfs/{cid}` | Path (IPFS path gateway) | `05-activity-types.md` (example on a CDN host) | Media segment fetch by CID | operator or CDN |
 | `/.well-known/corundum-operator` | Well-known URI | `06-operators.md` Ch 18-20 | Operator Manifest | operator |
 | `/corundum/v1/replies/submit`, `/replies/batch` | Path | `06-operators.md` endpoint table, `07-reply-protocol.md` | Inter-operator reply submission | operator |
 | `/corundum/v1/migration/notify` | Path | `06-operators.md` endpoint table | MigrationNotification hint | operator |
-| `/corundum/v1/events`, `/events/snapshots/...` | Path | `16-interop-streams.md` Ch 47-52, `06-operators.md` table | Normative inter-operator event stream | operator |
+| `/corundum/v1/events`, `/events/snapshots/...` | Path | `15-interop-streams.md` Ch 47-52, `06-operators.md` table | Normative inter-operator event stream | operator |
 | `/api/v1/corundum/streaming` | Path | `docs/client-api/14-event-stream.md` | Client event stream (formerly Ch 36) | operator |
 | `/.well-known/corundum-curator` | Well-known URI | `09-curation.md` Feed Discovery | Authority Declaration | curator |
 | `<feed_url>/head.jws`, `/heads/...`, `/log/...`, `/snapshots/...`, `/bloom.bin`, `/buckets.bin`, `/entries/...` | Paths relative to a curator-chosen base | `09-curation.md` | Static curation feed | curator |
 | `/api/v1/...`, `/api/v2/media`, `/api/v2/search`, `/oauth/...` | Paths (Mastodon-shaped) | `docs/client-api/00-design.md` and later files | Native client API | operator |
 | `/api/v1/corundum/...`, `/api/v1/admin/corundum/...` | Paths | `docs/client-api/08`, `09`, `11` | Corundum-only client endpoints | operator |
 | `/api/v1/...`, `/api/v1/streaming`, `/oauth/...` | Paths (Mastodon API) | `docs/client-api/13-mastodon-shim.md` | Mastodon compatibility shim | operator |
-| `/api/v0/...` | Path (Kubo RPC) | `15-implementation-guide.md` | IPFS node admin. Localhost only (15: "never expose it to the internet") | operator (internal) |
+| `/api/v0/...` | Path (Kubo RPC) | `14-implementation-guide.md` | IPFS node admin. Localhost only (15: "never expose it to the internet") | operator (internal) |
 
 The current spec defines no SRV records and no other underscored DNS names.
 
