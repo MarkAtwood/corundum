@@ -11,7 +11,7 @@ Identity in Corundum is a three-layer system designed so that no single layer's 
 
 A handle is a convenience layer. If it stops resolving, the DID and everything below it are unaffected.
 
-**Layer 2: DID (the persistent identifier).** Every Corundum user is identified by a W3C Decentralized Identifier. The DID is the *canonical persistent* identifier: operators MUST store the DID as the primary identifier for a user, and every reference to a user in a protocol object names the DID. The DID never changes when the user changes operator, rotates keys, or changes handle.
+**Layer 2: DID (the persistent identifier).** Every Corundum user is identified by a W3C Decentralized Identifier. The DID is the *canonical persistent* identifier: operators MUST store the DID as the primary identifier for a user, and every reference to a user in a protocol object names the DID. The DID does not change when the user rotates keys or changes handle, and in most cases does not change when they change operator. The exception is a `did:webvh` DID hosted on the old operator's own domain: moving it to a new host changes the domain part of the DID string, while its self-certifying identifier (SCID) stays the same (Chapter 7). Corundum therefore identifies a `did:webvh` user by the SCID: two `did:webvh` DIDs with the same SCID are the same user when the DID log proves the move.
 
 The DID document is changed only by the user's **update keys**, which the user holds and operators MUST NOT hold (Chapter 7). This is what makes the user, not any operator, the owner of the identity: an operator can stop serving a user, but it cannot take the identity, rewrite it, or block the user from moving.
 
@@ -88,7 +88,7 @@ The update keys that change this document are not in it. For `did:webvh` they ar
 
 The `alsoKnownAs` array lists the user's handles: `acct:alice@birdsite.example` for an account handle, `dns:alice.example` for a domain handle. This is the DID's half of the bidirectional handle check (Chapter 8).
 
-**For `did:key` users** there is no document to carry a service entry. The DID and the IPNS name encode the same Ed25519 public key, so a resolver derives the IPNS name directly from the DID, and the RootManifest names the operator endpoint. Such a user has exactly one content key, which never changes.
+**For `did:key` users** there is no document to carry a service entry. The DID and the IPNS name encode the same Ed25519 public key, so a resolver derives the IPNS name directly from the DID, and the RootManifest names the operator endpoint and the user's `listKey` (Chapter 9). Such a user has exactly one content key, which never changes.
 
 **One DID, one Corundum identity.** A DID document has one `CorundumIdentity` entry, so one DID is one timeline. Everything in a DID document is public, so anyone who resolves it sees everything it lists. A user who wants personas that cannot be linked to each other uses a separate DID for each.
 
@@ -117,6 +117,8 @@ The old operator still holds the old content key and can keep publishing under t
 **The MigrationNotification** is a hint, not an authority. It contains the DID, the old and new IPNS names, and the new operator endpoint, and it is sent as an authenticated inter-operator request (Chapter 19). A receiving operator MUST NOT act on its contents directly; it re-resolves the DID and uses what the DID document says. Operators that miss the notification find the change when their cached copy of the DID document expires. Operators MUST NOT cache a DID document for longer than 24 hours, and SHOULD use the DID method's own cache guidance (for `did:webvh`, the log's `ttl`, default one hour).
 
 **If the old operator served the DID itself.** A `did:webvh` DID hosted on Operator A's domain (`did:webvh:<SCID>:a.example:users:alice`) stops resolving if A stops serving its log. To keep users able to leave, operators that create `did:webvh` DIDs for their users MUST set `portable: true` in the first log entry. The user can then move the DID to B's domain with a log entry signed by their update key. The SCID stays the same, and the new document lists the old DID in `alsoKnownAs`. Operators MUST key users by the SCID-bearing DID, accept such a move when the log proves it, and SHOULD keep a copy of the DID log of every user they follow, so that a hostile host deleting the log does not erase the record.
+
+**Old DID strings after a move.** Activities published before such a move name the old DID string in `attributedTo`. A verifier treats them as the user's when it can obtain a DID log that proves the move: its own copy, the log at the new location (reached from the user's current DID, whose document lists the old DID in `alsoKnownAs`), or the old host, if it still serves the log. A verifier that holds only an old post, has never seen the user's log, and finds the old host gone cannot verify that post. Users who want their content to stay verifiable in that case should host their DID on a domain they control from the start, or use `did:plc`.
 
 **Losing keys.**
 

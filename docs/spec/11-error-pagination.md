@@ -63,12 +63,10 @@ Receivers MUST ignore unknown `details` fields. A receiver that gets an unknown 
 | `DID_RESOLUTION_FAILED` | 502 | true | The DID document could not be fetched. |
 | `HANDLE_VERIFICATION_FAILED` | 400 | false | The handle does not verify against the identity. |
 | `REPLY_REJECTED` | per reason | `rate-limited` and `follow-not-yet-known` only | Reply submission rejected. Status and `details.reason` per the Chapter 21 table. |
+| `NOTIFICATION_REJECTED` | 400 or 403 | false | A notify endpoint rejected the message (Chapter 20). `details.reason` is `invalid-content-signature` (400), `author-operator-mismatch` (403), `unknown-user` (400), or `blocked-user` (403). |
 | `CURATION_AUTHORITY_INVALID` | 400 | false | The curation authority declaration is invalid or does not match its fetch URL. |
 | `HASH_TYPE_UNSUPPORTED` | 400 | false | The curation hash type is not supported. |
 | `CURATION_EXPIRED` | 400 | false | The curation entry or declaration is past its validity. |
-| `CHUNK_MISSING` | 400 | false | Finalize referenced a chunk that was not uploaded (Chapter 16). |
-| `MANIFEST_INVALID` | 400 | false | The media manifest is malformed or inconsistent with its chunks. |
-| `UPLOAD_SESSION_EXPIRED` | 410 | false | The upload session no longer exists. Start a new session. |
 | `INVALID_CURSOR` | 400 | false | The cursor fails verification or does not match the request (Chapter 38). |
 | `RESUME_BUFFER_EXHAUSTED` | 410 | false | The requested resume sequence is older than the retained window (Part XV, Chapters 48 and 50). `details.earliestSequence` REQUIRED. |
 

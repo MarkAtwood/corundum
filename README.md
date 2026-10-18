@@ -82,7 +82,7 @@ The specification is **complete and stable** for the core protocol. All major de
 - DID as canonical user identifier (IPNS name is the current operational key)
 - Migration by DID update (only the user's update key can move them; the old operator cannot block it)
 - Two-level ArchiveIndex (O(1) lookups, dropped redundant hash chain)
-- Downgrade attack prevention (require all signatures the sender's manifest declares)
+- Downgrade attack prevention (require a signature from every key the signer's DID document lists)
 - Reply tree portability (first-class IPFS objects; data export as fallback)
 
 See [`docs/spec/00-preface.md`](docs/spec/00-preface.md) for design philosophy and [`docs/corundum-book.md`](docs/corundum-book.md) for the full index.
@@ -112,7 +112,7 @@ The reference implementation will be written in Rust. This repository will conta
 **MVP scope** (first working operator):
 - Detached JWS signing over stored bytes (RFC 7515, RFC 7797) with test vectors
 - Ed25519 key generation, signing, verification
-- IPFS object add/get/pin via Kubo HTTP API
+- IPFS raw block put/get/pin via the Kubo RPC API
 - IPNS publish/resolve
 - RootManifest creation and signing
 - Timeline entries, epochs, and ArchiveIndex

@@ -91,6 +91,46 @@ The RootManifest names the StateMap's top-level index, so the StateMap is signed
 
 Keeping the two apart matters for users who hold their own content key. The operator accepts replies continuously and can update its ReplyMap without the user's key. The author changes their own StateMap only when they edit, delete, or re-sign, and they republish their RootManifest then anyway.
 
+**Wire formats.** Every object below is JSON stored as a raw IPFS block of at most 1 MiB (Chapter 33). CIDs are strings; `null` marks an absent page or value.
+
+The RootManifest is an attached JWS (Chapter 34) with `corundumType` `"RootManifest"`, whose payload is:
+
+```json
+{
+  "@type": "corundum:RootManifest",
+  "did": "<the user's DID>",
+  "profile": { "displayName": "Alice", "avatar": null },
+  "operatorEndpoint": "https://birdsite.example",
+  "timeline": { "latestSeq": 1046, "currentChunk": "<CID>", "archiveIndex": "<CID, or null before the first epoch>" },
+  "stateMap": "<CID of the StateMap's top-level index, or null>",
+  "replyMap": "<IPNS name of the operator's ReplyMap>",
+  "lists": { "following": ["<CID>"], "blocks": ["<CID>"], "mutes": ["<CID>"], "publicFollowing": [] },
+  "published": "2025-03-15T14:30:00Z"
+}
+```
+
+`avatar` is a ContentRef (Chapter 15) or `null`. `operatorEndpoint` MUST equal the one in the user's DID document; for a `did:key` user, whose DID has no document, it is the only place the operator is named, and the manifest also carries `listKey` (Chapter 6). Each `lists` member is the ordered array of JWE objects holding that list (Chapter 25); `publicFollowing` names plaintext lists the user has chosen to publish.
+
+The timeline objects are:
+
+```json
+{ "@type": "corundum:ArchiveIndex", "pages": [ { "startEpochIndex": 0, "endEpochIndex": 255, "page": "<CID of an IndexPage>" } ] }
+{ "@type": "corundum:IndexPage", "epochs": [ { "startSeq": 0, "endSeq": 255, "epoch": "<CID of an Epoch>" } ] }
+{ "@type": "corundum:Epoch", "startSeq": 0, "entries": [ { "@type": "corundum:Entry", "seq": 0, "content": "<activity id>", "signingRecord": "<CID>" } ] }
+```
+
+The current chunk is a `corundum:Epoch` with fewer than 256 entries.
+
+A sequence map has the same three levels:
+
+```json
+{ "@type": "corundum:SeqMapIndex", "pages": ["<CID of a SeqMapPage, or null>"] }
+{ "@type": "corundum:SeqMapPage", "leaves": ["<CID of a SeqMapLeaf, or null>"] }
+{ "@type": "corundum:SeqMapLeaf", "epochIndex": 4, "slots": [null, { "replacedBy": "<activity id>" }] }
+```
+
+`pages[p]` covers epochs `256p` to `256p + 255`; `leaves[e mod 256]` is the leaf for epoch `e`; a leaf's `slots` has exactly 256 elements, one per sequence number of its epoch. StateMap slots hold `EntryState` objects; ReplyMap slots hold the CID of a reply tree's first page (Chapter 21). The ReplyMap's `SeqMapIndex` is the payload of the attached JWS that its IPNS name points to.
+
 ### Chapter 11: Activity Objects
 
 Activity objects are the actual content: the posts, images, articles, events, and other things users create. They follow the ActivityStreams 2.0 data model but Corundum uses only the data objects, not the ActivityPub protocol.
@@ -161,7 +201,7 @@ An example reply with a content warning:
 
 `atd` is an optional CID naming the Activity Type Definition the activity follows (Chapter 14). When it is absent, `@type` names one of the standard types.
 
-`tag` contains hashtags (type `Hashtag`), mentions (type `Mention`), and emoji reactions. Hashtags are used for feed discovery; mentions notify the mentioned user's operator. Mentions carry the DID of the mentioned user alongside the display handle, so the operator can route the mention notification without a separate identity lookup:
+`tag` contains hashtags (type `Hashtag`), mentions (type `Mention`), and emoji reactions. Hashtags are used for feed discovery; a mention is delivered to the mentioned user's operator as an ActivityNotice (Chapter 20). Mentions carry the DID of the mentioned user alongside the display handle, so the operator can route the mention notification without a separate identity lookup:
 
 ```json
 "tag": [
@@ -190,7 +230,7 @@ An example reply with a content warning:
 
 The `object` field is the identifier of the boosted activity. The Boost is its own signed activity in Bob's timeline; Alice's original post is referenced by CID, not embedded. This means boosting the same post twice creates two Boost activities with the same `object` — the operator can detect and deduplicate these.
 
-When Bob's operator processes a Boost, it notifies Alice's operator (via a lightweight notification, not through the reply protocol — Boosts are not replies). Alice's operator records that Bob boosted her post; Alice's app might show a "Bob boosted this" indicator.
+When Bob's operator processes a Boost, it sends Alice's operator an ActivityNotice (Chapter 20), not a reply submission — Boosts are not replies. Alice's operator records that Bob boosted her post; Alice's app might show a "Bob boosted this" indicator.
 
 **Reactions (likes and custom reactions).** Reactions are lightweight activity objects stored in the reacting user's timeline but not submitted to the target via the reply protocol:
 
@@ -219,7 +259,7 @@ Custom emoji reactions use the `EmojiReact` type from the Corundum namespace ext
 }
 ```
 
-Reactions (Like, EmojiReact, Bookmark) are stored in the reacting user's own timeline. The ATD for the target post declares which reaction types are supported; operators that support the same reaction vocabulary display aggregate reaction counts by fetching from their users' timelines and the timelines of followed users. The operator notifies the target activity's author's operator when a reaction is published, so the author can see it in their notifications.
+Reactions (Like, EmojiReact, Bookmark) are stored in the reacting user's own timeline. The ATD for the target post declares which reaction types are supported; operators that support the same reaction vocabulary display aggregate reaction counts by fetching from their users' timelines and the timelines of followed users. When a reaction is published, the reacting user's operator sends the target activity's author's operator an ActivityNotice (Chapter 20), so the author can see it in their notifications.
 
 Activities have no `id` field. An activity's identifier is the CID of its stored bytes (Chapter 33): a CIDv1 with the `raw` codec and a SHA-256 multihash. It is the same value as the activity's IPFS storage CID. All cross-references, such as `inReplyTo` and `object`, use it. The activity is stored exactly as its author wrote it and is never re-serialized, so the identifier never changes.
 
@@ -290,7 +330,7 @@ Then:
 1. The `Delete` activity is appended to the timeline with its own entry and SigningRecord.
 2. The deleted activity's StateMap slot gets `deletedBy`, naming the `Delete` activity (Chapter 10).
 3. The operator unpins the deleted activity and its SigningRecords from its IPFS node and stops serving them.
-4. The operator notifies operators known to have fetched the content, which SHOULD unpin it (Chapter 39).
+4. The operator sends the `Delete` activity as an ActivityNotice (Chapter 20) to operators known to have fetched the content, which SHOULD unpin it (Chapter 39). If the deleted post is a reply, it also submits the `Delete` to the parent's operator (Chapter 21).
 
 A receiver MUST NOT act on a `Delete` activity until it has verified that the activity is authentic (Chapter 34) and that its author is the author of the activity it names. Only the author can delete their post this way.
 

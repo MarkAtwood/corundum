@@ -228,7 +228,7 @@ The authentication flow:
 
 ### Normative Authentication Specification
 
-**Covered components.** Every inter-operator request other than `GET /.well-known/corundum-operator` MUST carry an RFC 9421 signature covering:
+**Covered components.** Every inter-operator request other than `GET /.well-known/corundum-operator` and `GET /routing/v1/ipns/{name}` MUST carry an RFC 9421 signature covering:
 
 | Request type | Required components |
 |---|---|
@@ -249,9 +249,9 @@ The receiver MUST reject a signature if `expires` minus `created` exceeds 300, i
 
 **Signature coverage.** A sender MUST sign each request with every one of its active keys, giving each signature its own label. The receiver MUST verify that the request carries a valid signature by every active key in the sender's manifest. A request that lacks one MUST be rejected with reason `insufficient-signature-coverage`. Requiring every active key, rather than any one, prevents an attacker who breaks one algorithm from stripping the other signatures.
 
-**Errors.** Authentication failures are `SIGNATURE_INVALID` (`401`) with `details.reason` `invalid-operator-signature` (missing, malformed, expired, or invalid signature; a revoked or deprecated-and-removed key; a sender binding mismatch) or `insufficient-signature-coverage` (Chapter 37). A `keyid` that is not in the sender's manifest after the re-fetch below is `KEY_NOT_FOUND`. On the reply endpoints these conditions are reported as `REPLY_REJECTED` with the same reasons (Chapter 21).
+**Errors.** Authentication failures are `SIGNATURE_INVALID` (`401`) with `details.reason` `invalid-operator-signature` (missing, malformed, expired, or invalid signature; a revoked or deprecated-and-removed key; a sender binding mismatch) or `insufficient-signature-coverage` (Chapter 37). A `keyid` that is not in the sender's manifest after the re-fetch below is `KEY_NOT_FOUND`. On the reply endpoints all of these, including an unknown key, are reported as `REPLY_REJECTED` with reason `invalid-operator-signature` or `insufficient-signature-coverage` (Chapter 21).
 
-**Manifest cache and re-fetch.** Operators SHOULD cache a remote manifest for the duration given by its `Cache-Control` header, or 3600 seconds if none is present, and MUST NOT cache it for longer than 3600 seconds. If a request names a `keyid` that is not in the cached manifest, the receiver MUST re-fetch the manifest before rejecting it, but MUST NOT re-fetch any one origin's manifest more than once per 60 seconds; while that limit applies, it rejects the request with `KEY_NOT_FOUND`. This bounds the work an attacker can cause by sending made-up key identifiers. A `keyid` that the cached manifest lists as `revoked` is rejected without a re-fetch.
+**Manifest cache and re-fetch.** Operators SHOULD cache a remote manifest for the duration given by its `Cache-Control` header, or 3600 seconds if none is present, and MUST NOT cache it for longer than 3600 seconds. If a request names a `keyid` that is not in the cached manifest, the receiver MUST re-fetch the manifest before rejecting it, but MUST NOT re-fetch any one origin's manifest more than once per 60 seconds; while that limit applies, it rejects the request with `RATE_LIMITED`, with `details.retryAfter` giving the seconds until a re-fetch is allowed, so that a sender that has just added a key can retry. This bounds the work an attacker can cause by sending made-up key identifiers. A `keyid` that the cached manifest lists as `revoked` is rejected without a re-fetch.
 
 ### Chapter 20: Operator Discovery
 
@@ -281,16 +281,75 @@ The following endpoints constitute the complete Corundum inter-operator protocol
 | `GET` | `/routing/v1/ipns/{name}` | none | No | MVP, REQUIRED for operators that host users |
 | `POST` | `/corundum/v1/replies/submit` | `replies: true` | Yes | MVP |
 | `POST` | `/corundum/v1/follows/notify` | none | Yes | MVP |
+| `POST` | `/corundum/v1/activities/notify` | none | Yes | MVP |
 | `POST` | `/corundum/v1/blocks/notify` | none | Yes | Post-MVP |
 | `POST` | `/corundum/v1/replies/batch` | `batchSubmission: true` | Yes | Post-MVP |
 | `POST` | `/corundum/v1/migration/notify` | `migration: true` | Yes | Post-MVP |
 | `GET` | `/corundum/v1/events` | `eventStream: true` | Yes | Post-MVP |
 | `GET` | `/corundum/v1/events/snapshots/index.json` | `eventStream: true` | Yes | Post-MVP (optional) |
+| `GET` | `/corundum/v1/events/snapshots/{file}` | `eventStream: true` | Yes | Post-MVP (optional) |
 
-`/routing/v1/ipns/{name}` is the standard IPFS delegated routing endpoint; it serves the signed IPNS record of each user the operator hosts (Chapter 5). The record is self-verifying, so the request needs no signature. Content is fetched by CID through IPFS. `/corundum/v1/follows/notify` receives FollowNotifications (follows and unfollows) and `/corundum/v1/blocks/notify` receives BlockNotifications (Chapter 26).
+`/routing/v1/ipns/{name}` is the standard IPFS delegated routing endpoint; it serves the signed IPNS record of each user the operator hosts (Chapter 5) and of the operator's own ReplyMap (Chapter 10). The record is self-verifying, so the request needs no signature. Content is fetched by CID through IPFS. The notify endpoints take the messages defined below.
 
 **Capability gate**: if the capability is not declared `true` in the operator's manifest, the endpoint MUST return `404 Not Found`. This makes "endpoint absent" and "endpoint present but rejecting this request" unambiguous.
 
-**MVP scope**: implementations are required to support `GET /.well-known/corundum-operator`, `GET /routing/v1/ipns/{name}` (if they host users), `POST /corundum/v1/replies/submit`, and `POST /corundum/v1/follows/notify`, which followers-only reply policies depend on. All other endpoints are post-MVP and MAY be absent.
+**MVP scope**: implementations are required to support `GET /.well-known/corundum-operator`, `GET /routing/v1/ipns/{name}` (if they host users), `POST /corundum/v1/replies/submit`, `POST /corundum/v1/follows/notify`, which followers-only reply policies depend on, and `POST /corundum/v1/activities/notify`, which carries deletions to the operators that hold copies. All other endpoints are post-MVP and MAY be absent.
+
+### Inter-Operator Messages
+
+Each notify endpoint takes one JSON body. It returns `202 Accepted` with no body when it accepts the message, or a `corundum:Error` (Chapter 37); a message rejected for its content uses the code `NOTIFICATION_REJECTED` with one of the reasons given below. Every notify endpoint is idempotent: receiving the same body again changes nothing. A sending operator sends messages only about its own users: the user a message is from (the follower, the blocker, the activity's author) MUST have the sending origin as their operator (Chapter 20), or the message is rejected with reason `author-operator-mismatch`.
+
+**FollowNotification** (`POST /corundum/v1/follows/notify`). The body is an attached JWS (Chapter 34) with `corundumType` `"FollowNotification"`, signed by the follower's content keys, whose payload is:
+
+```json
+{
+  "@type": "corundum:FollowNotification",
+  "follower": "<DID of the follower>",
+  "followee": "<DID of the followee>",
+  "action": "follow",
+  "published": "2025-03-15T14:30:00Z"
+}
+```
+
+`action` is `"follow"` or `"unfollow"`. The receiver verifies the JWS against the follower's required set (Chapter 34); if it does not verify, the reason is `invalid-content-signature`. If the followee is not a user of the receiver, the reason is `unknown-user`; if the followee has blocked the follower, `blocked-user`. For one follower and followee, the accepted notification with the latest `published` time is the current state; an older one is accepted and ignored. Chapter 26 describes how the notification is used.
+
+**BlockNotification** (`POST /corundum/v1/blocks/notify`). The body is plain JSON, authenticated only by the request signature:
+
+```json
+{
+  "@type": "corundum:BlockNotification",
+  "blocker": "<DID of the user who blocked>",
+  "blocked": "<DID of the blocked user>",
+  "published": "2025-03-15T14:30:00Z"
+}
+```
+
+It is advisory (Chapter 26). If `blocked` is not a user of the receiver, the reason is `unknown-user`.
+
+**MigrationNotification** (`POST /corundum/v1/migration/notify`). The body is plain JSON:
+
+```json
+{
+  "@type": "corundum:MigrationNotification",
+  "did": "<DID of the user who moved>",
+  "previousIpnsName": "<old IPNS name>",
+  "ipnsName": "<new IPNS name>",
+  "operatorEndpoint": "<origin of the new operator>"
+}
+```
+
+It is a hint (Chapter 7). The receiver MUST NOT act on its contents; it re-resolves `did` and uses what the DID document says. It is exempt from the rule that a message comes from the user's operator, because the old operator may be the one sending it, but receivers SHOULD rate-limit re-resolution per DID.
+
+**ActivityNotice** (`POST /corundum/v1/activities/notify`). Delivers a signed activity to the operator of a user it concerns, when the activity is not a reply (replies go through Chapter 21):
+
+```json
+{
+  "@type": "corundum:ActivityNotice",
+  "activity": "<the activity's exact bytes, base64url without padding>",
+  "signingRecord": "<its SigningRecord's exact bytes, base64url without padding>"
+}
+```
+
+An operator sends an ActivityNotice for a mention of one of the receiver's users, for a Boost (`Announce`), `Like`, or `EmojiReact` whose `object` is a post by one of the receiver's users, and for a `Delete` of content the receiver is known to have fetched (Chapter 39). The receiver checks that the activity's CID can be computed from the decoded bytes and that the activity is authentic as an activity not yet in an archive (Chapter 34); otherwise the reason is `invalid-content-signature`. If the activity concerns none of the receiver's users and is not a `Delete`, the reason is `unknown-user`. A `Delete` is then handled as Chapter 13 requires.
 
 ---

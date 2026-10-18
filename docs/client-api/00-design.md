@@ -162,8 +162,8 @@ Every code used anywhere in this API is listed here. Codes marked *spec* are the
 | `HANDLE_VERIFICATION_FAILED` (spec) | 400 | false | A handle does not verify bidirectionally against its DID (spec Chapter 8). |
 | `ALGORITHM_REJECTED` (spec) | 400 | false | The key or signature algorithm is not in the spec Chapter 36 registry. |
 | `CURATION_AUTHORITY_INVALID` (spec) | 400 | false | A curator's Authority Declaration is invalid or does not match its URL. |
-| `CHUNK_MISSING` (spec) | 400 | false | A chunked upload was completed with chunks missing (`details` lists them). |
-| `UPLOAD_SESSION_EXPIRED` (spec) | 410 | false | The upload session no longer exists. |
+| `CHUNK_MISSING` | 400 | false | A chunked upload was completed with chunks missing (`details` lists them). |
+| `UPLOAD_SESSION_EXPIRED` | 410 | false | The upload session no longer exists. |
 | `RESUME_BUFFER_EXHAUSTED` (spec) | 410 | false | An event stream resume point is older than the retained buffer (`14-event-stream.md`). |
 | `UPSTREAM_UNAVAILABLE` | 502 | true | A service the operator depends on (a curator, a remote operator) could not be reached. |
 | `IPFS_UNAVAILABLE` | 503 | true | The operator's IPFS node is temporarily unreachable. |

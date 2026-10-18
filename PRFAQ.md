@@ -98,7 +98,7 @@ A: When Earl moves from his self-hosted server to Birdsite:
 4. Birdsite publishes a RootManifest under the new key, committing to exactly the same archive.
 5. Birdsite sends a MigrationNotification to the operators of Earl's followers, which re-resolve his DID and see the change.
 
-Earl's followers don't notice anything change. His DID is unchanged. His handle is unchanged (if he controls his domain). His post history is intact. He turns off his old server.
+Earl's followers don't notice anything change. His DID is unchanged. His handle is unchanged (if he controls his domain). His post history is intact. He turns off his old server, keeping his domain and moving his DID log (a static file) to any static web host.
 
 A hostile old operator cannot stop this. The DID update is the only step that carries authority, and only Earl's update key can make it. Everything else Birdsite needs is in IPFS. The old operator still has the old content key, but Earl's DID no longer names it, so nothing it signs is accepted.
 
@@ -115,7 +115,7 @@ Corundum's approach:
 - The deleted post's identifier stays in the archive tree. It is a hash, but a hash of personal data is still personal data under GDPR, so Corundum treats it that way and retains it on an integrity basis.
 - A legal hold binds only the operator that is subject to it; it never obliges other operators to keep content.
 
-Corundum does not claim to make IPFS GDPR-proof. It provides the mechanisms (tombstones, erasure notifications, retention metadata) that a GDPR-compliant deployment needs. Compliance depends on operators entering into data sharing agreements with each other and faithfully implementing the tombstone pathway. The protocol provides the plumbing; the compliance depends on the humans operating it.
+Corundum does not claim to make IPFS GDPR-proof. It provides the mechanisms (tombstones, erasure notifications, `expiresAt`) that a GDPR-compliant deployment needs. Compliance depends on operators entering into data sharing agreements with each other and faithfully implementing the tombstone pathway. The protocol provides the plumbing; the compliance depends on the humans operating it.
 
 ---
 
@@ -137,28 +137,30 @@ A: The protocol's requirements map well to Rust's strengths:
 
 **Q: What does the reference implementation include?**
 
-A: The MVP scope covers the minimum needed to run a conforming operator:
+A: The MVP scope covers what an operator needs to federate:
 
 - Detached JWS signing and verification over stored bytes, with a full test vector suite
 - Ed25519 key generation, signing, and verification
 - CID computation (SHA-256 + raw codec, using the `cid` and `multihash` crates)
-- Kubo HTTP API client (add/get/pin/unpin, IPNS publish/resolve)
+- Kubo RPC client (block put/get, pin/unpin, IPNS publish/resolve)
 - RootManifest creation, signing, and IPFS publication
 - Timeline management: entries, chunks, epoch finalization, ArchiveIndex
-- Operator Manifest at `/.well-known/corundum-operator` via HTTPS
+- Operator Manifest at `/.well-known/corundum-operator` via HTTPS, and users' IPNS records at `/routing/v1/ipns/{name}`
+- `did:webvh` resolution and handle resolution (WebFinger and DNS)
+- Follow notifications and activity notices (`/corundum/v1/follows/notify`, `/corundum/v1/activities/notify`)
 - HTTP Message Signatures (RFC 9421) for all inter-operator requests
-- Reply submission endpoint (inbound validation: HTTP sig, block list, signing record, content hash, curation check, rate limits)
+- Reply submission endpoint (inbound validation: HTTP signature, activity CID, signing record, block list, reply policy, curation check, rate limits)
 - Reply submission client (outbound: sign and POST to a remote operator)
 - Standard error envelope and cursor-based pagination for collection endpoints
 - SQLite for user records, DID→IPNS cache, and metadata indexes
 
-Deferred to post-MVP: `did:plc` and `did:key` (the MVP resolves `did:webvh` only), handle resolution, curation feed subscriptions beyond stub interface, chunked media, extensible ATD system, WebSocket/SSE event streams, user migration, post-quantum algorithm support.
+Deferred to post-MVP: `did:plc` and `did:key` (the MVP resolves `did:webvh` only), curation feed subscriptions beyond stub interface, chunked media, extensible ATD system, WebSocket/SSE event streams, user migration, post-quantum algorithm support.
 
 ---
 
 **Q: How does the implementation talk to IPFS?**
 
-A: Kubo (the reference IPFS implementation, formerly go-ipfs) runs as a separate process. The Corundum implementation talks to Kubo's localhost HTTP API on port 5001 — a thin `reqwest`-based wrapper around a handful of endpoints (`/api/v0/add`, `/api/v0/cat`, `/api/v0/pin/add`, `/api/v0/name/publish`, etc.).
+A: Kubo (the reference IPFS implementation, formerly go-ipfs) runs as a separate process. The Corundum implementation talks to Kubo's localhost HTTP API on port 5001 — a thin `reqwest`-based wrapper around a handful of endpoints (`/api/v0/block/put`, `/api/v0/block/get`, `/api/v0/pin/add`, `/api/v0/name/publish`, etc.; all POST).
 
 No IPFS client library or IPLD framework is pulled in. The IPFS heavy lifting (DHT, peer-to-peer connectivity, bitswap, garbage collection) is entirely Kubo's responsibility. The Corundum binary is a protocol server; Kubo is the storage backend.
 
@@ -172,7 +174,7 @@ A: SQLite via `rusqlite`. The IPFS content store is the authoritative source of 
 
 Specifically, SQLite stores:
 - User records (DID, current IPNS name, current operator endpoint, last-seen timestamp)
-- DID→IPNS cache (with TTL; expires after 24 hours, re-resolved from DID document)
+- DID document cache (at most 24 hours, re-resolved from the DID method)
 - Content hash index (SHA-256 → list of entry CIDs; required for efficient retroactive curation matching)
 - Rate limiting counters (per-operator, per-user, rolling time windows)
 - Pending reply submission queue (for retry backoff)

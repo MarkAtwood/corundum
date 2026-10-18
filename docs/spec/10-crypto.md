@@ -85,7 +85,7 @@ This rule also defeats a hostile former operator. After a user rotates their con
 
 **Verification when the manifest is unavailable.** If the verifier cannot fetch what it needs — the operator is down, the IPNS resolution times out, the DID document is unreachable — the signature cannot be verified. The correct response is to mark the signature status as "unverified" (or "deferred"), not to accept or reject the content. Treating unavailability as rejection would let an attacker take down an operator's manifest to suppress their content. Treating unavailability as acceptance would let an attacker present unverifiable content as trusted. Deferral is the only sound policy: retry when the manifest becomes available.
 
-**Future timestamps.** If an activity's `published` time is in the future, the verifier should allow a tolerance of up to 5 minutes to account for clock differences between operators running on different infrastructure. An activity timestamped more than 5 minutes in the future is likely a clock misconfiguration and should be rejected with error code `TIMESTAMP_SKEW`. This tolerance applies only to the verification step; operators should log and alert on large clock skews in their own infrastructure.
+**Future timestamps.** A verifier MUST allow an activity's `published` time to be up to 5 minutes in the future, to absorb clock differences between operators, and MUST reject an activity timestamped more than 5 minutes in the future with error code `TIMESTAMP_SKEW`. This tolerance applies only to the verification step; operators should log and alert on large clock skews in their own infrastructure.
 
 ### Chapter 35: Cryptographic Agility
 
