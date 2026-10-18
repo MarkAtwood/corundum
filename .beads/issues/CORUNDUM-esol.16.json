@@ -3,13 +3,15 @@
   "title": "Decide fate of dns-conflicts.md",
   "description": "docs/analysis/dns-conflicts.md analyzes retired attic specs; issues 1-6, 8 describe text no longer present. Issue 7 wrong: _corundum.*.x is not a DNS wildcard (RFC 4592). NEEDS DECISION: rebase on current spec (WebFinger now in play) or move to attic.",
   "design": "DECIDED (Mark 2026-10-18): Rewrite dns-conflicts.md against the current spec (do not archive). Cover _corundum TXT, /.well-known/corundum-operator, /.well-known/webfinger (D3), any others found; fix RFC 4592 wildcard error. Do after esol.3 (identity) so names are settled.",
-  "status": "open",
+  "status": "closed",
   "priority": 3,
   "issue_type": "task",
   "owner": "mark@reviewcommit.com",
   "created_at": "2026-10-18T16:43:43.599293723Z",
   "created_by": "agent",
-  "updated_at": "2026-10-18T16:54:37.172436428Z",
+  "updated_at": "2026-10-18T17:22:56.018023145Z",
+  "closed_at": "2026-10-18T17:22:56.018023145Z",
+  "close_reason": "Rewritten against current spec: name registry, 5 real issues (operatorEndpoint origin, routing endpoint table, TXT parsing, api/v1 collision, reserved corundum.example namespace), IANA notes; old Issue 7 wildcard error corrected.",
   "dependencies": [
     {
       "issue_id": "CORUNDUM-esol.16",
