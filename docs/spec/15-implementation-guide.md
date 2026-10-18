@@ -6,160 +6,141 @@ To be a conforming Corundum operator, you must at minimum:
 
 1. **Publish an Operator Manifest** at `/.well-known/corundum-operator` over HTTPS, with your keys, capabilities, and self-signature. Without this, other operators cannot verify your identity or your capabilities. When your reply submission arrives at another operator, the first thing they do is fetch your manifest and verify your signature. No manifest means the request is rejected — there is no fallback identity mechanism. The manifest is also how you declare what protocol features you support, so operators know what they can expect from you. An operator with no manifest is invisible to the protocol; nothing you send will be accepted.
 
-2. **Maintain an IPFS node** (or use a gateway with pinning) for content-addressed storage. Without content-addressed storage, you cannot issue CIDs for user content, and CIDs are the currency of the entire system. Every post, every social graph update, every media item is identified by its CID. If you do not have IPFS storage, you have no way to assign valid CIDs (fabricating them would break all content verification), no way to pin content for durable availability, and no way to serve content to operators who fetch by CID. A gateway-with-pinning approach — using a service like Pinata or a public IPFS gateway for fetch, and a pinning service API for persistence — is acceptable for a small operator. It gives up some performance and adds a dependency on the pinning service, but it is a conforming implementation. A large operator needs a local IPFS cluster to avoid the latency and throughput limits of an external gateway.
+2. **Store objects in IPFS as raw blocks** (Chapter 33). Every Corundum object's identifier is a CIDv1 with the `raw` codec and a `sha2-256` multihash over its exact bytes, so the identifier and the IPFS storage CID are the same value. You need an IPFS node (or a gateway plus a pinning service) to store, pin, and serve those blocks. Media files are the one exception: they are UnixFS files built with the fixed parameters of Chapter 15. A gateway-with-pinning approach is acceptable for a small operator; it gives up some performance and adds a dependency on the pinning service, but it conforms. A large operator needs local IPFS nodes to avoid the latency and throughput limits of an external gateway.
 
-3. **Manage user identities** — generate or accept IPNS keypairs, publish RootManifests, maintain timelines as content-addressed archives using the epoch/ArchiveIndex structure. Without this, you cannot create users in any meaningful sense. The IPNS keypair is the user's identity; without generating and securely managing that keypair, there is no user — only a row in a database with no protocol-level presence. The ArchiveIndex structure is required, not optional: it is the canonical way other operators navigate a user's content history, and an operator that stores content as a flat list without an ArchiveIndex is not a conforming implementation. Other operators that try to fetch that user's content will find a structure they cannot parse.
+3. **Manage user identities** (Chapters 5–8). Users are keyed by DID. You must resolve `did:webvh` DIDs, and you must reject plain `did:web`: its document has no signed history, so whoever runs the web server could rewrite it. Supporting `did:plc` and `did:key` is optional. When you create a `did:webvh` DID for a user, you MUST set `portable: true` in its first log entry. You never hold a user's update keys. For each user you either hold the content key (the default) or accept the user's own. You resolve a DID document to its single `CorundumIdentity` service entry, and you never cache a DID document for longer than 24 hours.
 
-4. **Support the Reply Protocol** — accept incoming reply submissions via authenticated HTTP POST, validate signatures using the inline signing record, check policies, return acceptance or rejection. This is the core federation mechanism. Without it, your users cannot receive replies from users on other operators. Your users also cannot send replies to cross-operator posts — without the submission path, those replies are silently dropped. Federation without reply routing is read-only federation: your users can follow cross-operator accounts but cannot talk to them. That is a severe constraint that eliminates most of the value of federation for conversational use cases.
+4. **Resolve handles both ways** (Chapter 8). Implementations MUST support both methods: WebFinger (RFC 7033) for account handles (`alice@birdsite.example`) and the `_corundum.<domain>` DNS TXT record for domain handles. Serve WebFinger for your own users. A handle is shown as a user's only after the reverse check: the DID document must list it in `alsoKnownAs`. Without handles, users are identified by DIDs and 62-character IPNS names, and cross-operator mentions and search do not work.
 
-5. **Sign inter-operator requests** using HTTP Message Signatures (RFC 9421) with at least Ed25519, including the required components: `@method`, `@target-uri`, `@authority`, `content-digest`, and `corundum-timestamp`. Without signing, other operators cannot authenticate your requests. There is no other mechanism for an operator to know that a request claiming to come from `birdsite.example` actually came from Birdsite and not from an attacker spoofing the header. Unsigned requests have no operator identity attached, which means the receiving operator cannot check federation policy, cannot apply rate limits per-operator, and cannot distinguish your legitimate traffic from an attacker impersonating you. Most conforming operators will return `401 Unauthorized` on unsigned requests, full stop.
+5. **Publish and serve the content layer** (Chapters 9–13). Each user's RootManifest is an attached JWS, pointed to by an IPNS record under the user's content key. Behind it sit the archive tree (current chunk, epochs, ArchiveIndex), the StateMap, and a ReplyMap that you publish under your own IPNS name. Activities carry `seq`, and the archive tree never changes once written. Edits are new activities carrying `replaces`. Deletes are `Delete` activities, and you verify each one before acting on it. Serve IPNS records at the standard delegated routing endpoint, `GET /routing/v1/ipns/{name}`, so readers do not have to wait for the DHT. An operator that stores content as a flat list, or rewrites old epochs, is not conforming: other operators cannot navigate the first, and they will reject the second as a history rewrite (Chapter 34).
 
-6. **Implement Canonical JSON serialization** for all signing and hashing operations, including NFKC normalization. Without canonical serialization, your signatures will fail to verify on other implementations. This is one of the most common sources of interoperability failures in practice. The failure mode is subtle: you generate a keypair, sign an object, send it to another operator, and their signature verification fails — not because you used the wrong key or the wrong algorithm, but because you serialized the JSON object with different key ordering or different Unicode normalization than the verifier expects. The content of the object was identical; the bytes were not. Canonical serialization is what makes "sign here, verify anywhere" work across independent implementations.
+6. **Sign and verify with JWS under the strict Ed25519 profile** (Chapter 34). Use the General JSON Serialization. Activities get detached signatures (`"b64": false`) stored as SigningRecords; everything else gets attached signatures. The protected header contains exactly `alg`, `kid`, `corundumType`, `crit`, and, for detached signatures, `b64`. Sign and verify the exact bytes received. There is no canonicalization step, no Unicode normalization, and no re-serialization. For `alg` `"Ed25519"`, the verifier MUST make all four checks of the Chapter 34 profile. A verifier that skips them will disagree with other operators about which replies are valid.
 
-7. **Support Ed25519 signatures and SHA-256 hashes** for signing and content addressing. These are the required algorithms. Every other algorithm in the spec is optional. An operator that supports only the required algorithms can still interoperate fully with all other conforming operators. The reason this matters: if your implementation supports only an optional algorithm (say, only P-256 and not Ed25519), other operators that implement only the required algorithms cannot verify your signatures and cannot produce signatures you can verify. The required algorithms are the common denominator that guarantees baseline interoperability. Optional algorithms are for operators that want additional properties (post-quantum resistance, hardware security module compatibility) but must still support the baseline.
+7. **Support the Reply Protocol** (Chapter 21). Accept incoming reply submissions over authenticated HTTP POST. Verify the inline SigningRecord against the reply's bytes, check policies, and return either an acceptance or a `corundum:Error` with `code` `REPLY_REJECTED`. This is the core federation mechanism. Without it, your users cannot receive replies from users on other operators, and they cannot reply to posts hosted elsewhere. Federation without reply routing is read-only federation.
 
-8. **Implement the standard error envelope** for all API responses. Without a standard error format, other operators and their clients cannot programmatically interpret your error responses. A non-standard error body means that when your API returns `400 Bad Request`, the caller receives an opaque blob instead of a machine-readable error code and message. Every operator that integrates with you has to write custom error-parsing logic for your API rather than using shared library code. The error envelope is a small implementation investment; skipping it creates friction for every integration.
+8. **Sign inter-operator requests** using HTTP Message Signatures (RFC 9421) with `ed25519` (the RFC 9421 registry name), covering the components of Chapter 19: `@method`, `@target-uri`, `@authority`, `content-digest`, and `corundum-timestamp`. Without signing, other operators cannot authenticate your requests. They cannot check federation policy, cannot rate-limit you per operator, and cannot tell your traffic from an attacker impersonating you. Expect `401 Unauthorized` on unsigned requests.
 
-9. **Implement cursor-based pagination** for all collection endpoints. Without it, your collection endpoints have no standard way to handle large result sets. The failure modes: clients either receive truncated results without knowing they are truncated (because there is no `nextCursor` to signal more results exist), or they must invent custom pagination logic specific to your API (breaking client portability). Cursor-based pagination is also correct for content that can change between pages — offset-based pagination can skip or repeat items when the underlying collection is modified during traversal; cursors do not have this problem.
+9. **Support the required algorithms**: Ed25519 for signatures and SHA-256 for hashes (Chapter 36). Reject every algorithm the registry does not list. Interoperability depends on everyone sharing this baseline.
+
+10. **Implement the standard error envelope** (Chapter 37) for every non-2xx response with a body. Without it, every peer has to write custom error parsing for your API.
+
+11. **Implement cursor-based pagination** (Chapter 38) for all collection endpoints. Offset pagination skips or repeats items when the collection changes during traversal; cursors do not.
 
 ### Chapter 42: What You Should Also Implement
 
 Beyond the minimum:
 
-- **DID integration** — `did:web` at minimum. `did:plc` if you want AT Protocol compatibility. Without DID, users have no identity recovery mechanism on key loss. A user identified only by their raw IPNS name (the hash of their public key) who loses their private key has permanently lost their identity — there is no recovery path, no way to prove continuity with the old account, and no way to notify followers that the new key is the same person. `did:web` users can recover by updating their web-hosted DID document to point to a new key; `did:plc` users have a key rotation mechanism built into the DID method. Skipping DID is a defensible choice for an operator serving technical users who understand and accept the tradeoff. It is not acceptable for operators serving general users who expect account recovery.
+- **Curation feed subscription**, including at least one CSAM hash database. This item is listed under "should also implement" because it is not technically required for protocol conformance. It is, however, legally required in the United States under 18 U.S.C. § 2258A, which requires electronic service providers to report apparent CSAM to NCMEC. Similar obligations exist in the EU, UK, Australia, and most other jurisdictions where you might operate commercially. Running a public Corundum operator without CSAM detection exposes you to criminal liability in most jurisdictions. The failure mode is not a bad user experience. It is prosecution.
 
-- **Handle resolution** — at least the DNS method. Without handle resolution, your users have no human-readable identity. They are identified by IPNS names, which are 52-character base58 strings. Other operators displaying your users in their timelines cannot show `@alice@birdsite.example`; they show the IPNS hash. Cross-operator mentions, replies, and search by username all require the handle system. This is a severe user experience degradation for anyone interacting across operator boundaries, which is to say: for any user participating in the federated network rather than just within your own silo.
+- **Block and follow handling.** Block lists and follow lists are stored encrypted in the RootManifest (Chapter 25). When a reply arrives, the parent author's operator checks the author's block list with a local lookup; no probabilistic filter or proof structure is involved. Following always sends a FollowNotification to the followee's operator, so that followers-only replies work.
 
-- **Curation feed subscription** — at least one CSAM hash database. This item is listed under "should also implement" because it is not technically required for protocol conformance. It is, however, legally required in the United States under 18 U.S.C. § 2258A (the PROTECT Our Children Act), which mandates that electronic service providers report known CSAM to NCMEC. Equivalent obligations exist in the EU, UK, Australia, and most other jurisdictions where you might operate commercially. "Should also implement before you open to the public" understates the situation: operating a public Corundum operator without CSAM detection in place exposes you to criminal liability in most jurisdictions. The failure mode is not a bad user experience. It is federal prosecution.
+- **The inter-operator event stream** (Chapters 47–52) for high-volume federation: new posts, edits, deletions, and key changes, delivered over a persistent connection instead of per-request polling. Client-facing real-time streams are not part of the protocol; `docs/client-api/` describes the reference implementation's.
 
-- **Block list enforcement with Bloom filter support** for efficient negative checks. Without Bloom filters, every incoming reply submission and every new post requires a database query to check all subscribed block lists. For a low-volume operator receiving a few hundred items per day, a database query per item is fine. For an operator receiving thousands of items per second, database queries at that rate become a performance bottleneck before almost anything else does. The Bloom filter shifts the majority of checks to a local memory operation — a microsecond per check for a filter sized to 1% FPR — with only the roughly 1% of Bloom positives needing a database lookup to confirm. At scale, the difference between "a microsecond in RAM" and "a round-trip to the database" is the difference between handling the load and not.
+- **Content expiration handling.** Respect `expiresAt` on activities (Chapter 11). Time-limited content that keeps displaying after its expiry violates an explicit user choice. Expiry also matters for data-minimization obligations in some jurisdictions.
 
-- **Event streaming** via WebSocket or SSE for real-time updates. Without event streaming, clients must poll for new replies, follows, and timeline updates. Polling at any reasonable frequency — say, every 30 seconds — introduces up to 30 seconds of notification latency for real-time conversational use. Social media at its best feels like a conversation; 30-second latency makes it feel like email. Polling at higher frequency reduces latency but increases server load proportionally. Event streaming is the correct solution: the client holds one long-lived connection and receives push notifications the moment an event arrives, with essentially zero latency overhead and much lower server load than polling.
+- **Migration support.** Accept inbound migrations and support outbound ones (Chapter 7). A migration is the user's DID update naming a new `ipnsName` and `operatorEndpoint`. A MigrationNotification is only a hint: re-resolve the DID and act on what it says. The new operator rebuilds the user's presence from IPFS; a cooperative old operator only makes this faster. Users trust an operator they can leave with their data intact.
 
-- **Content expiration handling** — respect retention hints and `expires` fields on content. Without this, time-limited content (stories, time-limited posts) continues displaying after the expiry time the user set. A user who posts a story that expires in 24 hours and then watches it still appear 72 hours later has had an explicit user preference violated. This erodes trust in the feature. Content expiration also has legal dimensions in some jurisdictions (right to erasure, data minimization obligations); respecting expiration fields is part of a credible compliance posture.
-
-- **Migration support** — accept inbound migrations and support outbound migrations. Without inbound migration support, users moving to your operator from another operator cannot bring their content history. They arrive with an empty timeline, no followers ported, no archive of their posts. This is a significant friction for adoption, because moving to a new operator feels like starting over. Without outbound migration support, users are effectively locked in to your operator by the cost of losing their data. The ability to leave with your data intact is a precondition for users trusting your operator with their data in the first place. An operator that makes data export easy and migration cooperation smooth is an operator users can trust. An operator that silently loses data on export or refuses to cooperate with migration notifications is an operator users are right to distrust.
-
-- **Post-quantum algorithm support** — accept dual signatures (Ed25519 + Dilithium) even if you do not require Dilithium yet. Today, Dilithium is optional and Ed25519 is sufficient. When the ecosystem begins transitioning to post-quantum signing — driven by advances in quantum computing or regulatory mandates — operators that have not added Dilithium support will start rejecting valid signatures from operators that have switched. The early operators to transition will be the ones with the strongest security posture: governments, financial institutions, large platform operators. If you cannot verify their signatures, you cannot receive their content or accept their users' cross-operator activity. Adding Dilithium support while it is optional is a small implementation task. Adding it under pressure after it is required — when you are actively breaking federation with peers that have already switched — is an emergency. The window to do this incrementally is now.
+- **ML-DSA-65 verification.** ML-DSA-65 is PROVISIONAL in the registry (Chapter 36), so users must not list ML-DSA-65 keys yet. Verifiers MAY implement it now. When the registry marks it REQUIRED, users will start adding ML-DSA-65 keys to their required sets, and a verifier that cannot check them will have to reject those users' content. Adding support while it is optional is a small task. Adding it under pressure, while federation with peers that have switched is already breaking, is an emergency.
 
 ### Chapter 43: Common Implementation Mistakes
 
-**Incorrect canonical serialization.** The most common source of signature verification failures across implementations. Three specific pitfalls:
+**Re-serializing an object before verifying or forwarding it.** Parsing an activity into a struct and encoding it again changes its bytes: key order, whitespace, number formatting, and string escaping all drift. The new bytes have a different CID, and every signature over the original fails. Keep the received bytes. Hash and verify those bytes, and forward those bytes. Parse only to read fields (Chapter 33).
 
-1. Forgetting NFKC normalization. Non-ASCII characters in content (emojis, non-Latin scripts) will produce different bytes if NFKC normalization is not applied consistently.
-2. Including the `signature` field in the bytes to be signed. Always strip signature fields before serializing for signing.
-3. Floating point representation. Use ECMAScript's `Number.toString()` rules exactly. `1.0` must serialize as `1`; `1e10` must serialize as `10000000000`.
+**Using a library's default Ed25519 verify.** Many Ed25519 libraries accept non-canonical encodings, small-order points, or `S ≥ L`, or use the cofactored equation. Two operators using different defaults will accept different sets of signatures, and will therefore build different reply trees from the same submissions. Use a verify function that makes exactly the four checks of Chapter 34, and test it against the edge-case vectors of Chapter 45.
 
-**Treating IPNS name as primary identifier.** Operators must store the DID as the primary identifier for users, not the IPNS name. If you store only the IPNS name, you will be unable to re-resolve the user's current key when they migrate. DID → IPNS mapping should be a cached value, not a stored primary key.
+**Treating IPNS name as primary identifier.** Store the DID as the primary identifier for users. The IPNS name changes whenever the content key changes, including on every migration. DID → IPNS is a cached value, not a primary key. Every protocol object names users by DID.
 
-**Not verifying bidirectional handle claims.** It is not sufficient to verify that the DID claims a handle. You must also verify that the handle points back to the DID. Omitting the reverse check enables handle impersonation.
+**Caching DID documents too long.** Never cache a DID document for longer than 24 hours, and prefer the method's own guidance (for `did:webvh`, the log's `ttl`, default one hour). A stale DID document routes to a user's old operator and accepts the old content key after the user has rotated it. When a MigrationNotification arrives, re-resolve the DID at once; do not wait for the cache to expire, and do not trust the notification's contents.
 
-**Accepting reply submissions without verifying the inline signing record.** The submitting operator's HTTP signature proves the request came from a known operator; it does not prove the reply came from the claimed user. You must verify the inline signing record independently.
+**Not verifying bidirectional handle claims.** It is not sufficient to verify that the handle resolves to the DID. The DID document must also list the handle in `alsoKnownAs`. Either check alone enables impersonation.
 
-**Missing the detached signing record.** Activities are stored unsigned. If you sign the activity object itself (adding a signature field), you will produce a different CID than expected, and your implementation will be incompatible with others.
+**Accepting reply submissions without verifying the inline signing record.** The submitting operator's HTTP signature proves the request came from a known operator; it does not prove the reply came from the claimed user. Verify the SigningRecord against the reply's bytes and the author's required set (Chapter 34).
 
-**Using the wrong CID as the `id` field.** The activity's `id` is the CID of the *id-less canonical form* — the activity with no `id` field, serialized to Canonical JSON, then CID-calculated. A common mistake is computing the CID of the fully-formed object (with `id` already present), or computing the CID before performing NFKC normalization and timestamp canonicalization. The correct procedure: strip the `id` field, canonicalize the remaining fields, compute the CID of those bytes, then add the `id` field with that CID. Any other ordering produces a different CID and breaks signature verification, because the signing record's `content` field is this same CID.
+**Putting the signature inside the activity.** Activities are stored unsigned. A signature field inside the activity changes its bytes and therefore its identifier. Signatures go in a separate SigningRecord (Chapter 12).
 
-**Off-by-one in ArchiveIndex epoch boundaries.** Epoch 0 covers entries 0–255, epoch 1 covers 256–511, and so on. A common mistake is treating the epoch index and the sequence number modulo as if they might overlap. `epoch_index = floor(seq / 256)` and `offset_in_epoch = seq % 256` are always correct. An implementation that uses `floor(seq / 256) - 1` for the epoch index or `(seq % 256) + 1` for the offset will produce O(1) lookups that point to the wrong entry with no visible error — the wrong entry is returned and its sequence number won't match the requested one.
+**Acting on a Delete without verifying it.** A `Delete` activity is an instruction to stop serving content. Before acting on it, verify that it is authentic (Chapter 34) and that its author is the author of the activity it names (Chapter 13). Otherwise anyone can take down anyone's posts.
 
-**Not distributing tombstone notifications.** When a user deletes a post, the operator must notify downstream operators that previously received that content. Operators that only unpin locally and publish a tombstone to their own archive — without notifying subscribers — will have content that persists on other nodes despite deletion. The tombstone notification path must be implemented and tested, not just the local deletion path.
+**Trusting StateMap claims without checking the referenced activity.** `replacedBy` and `deletedBy` are pointers, not authority. Fetch the named activity and verify it. Confirm that it has the same author and that it names this post in `replaces` or `object` (Chapter 10). A pointer to an unverified or mismatched activity is ignored.
 
-**Building the DID→IPNS cache without expiry.** The cache must have a TTL. If a user migrates to a new IPNS key (via hostile migration, or after key rotation), and your cache holds the old IPNS name indefinitely, you will continue routing to the wrong identity. The recommended TTL is 24 hours. On expiry, re-resolve via the DID document. On receiving a MigrationNotification: update immediately, don't wait for TTL expiry.
+**Following `replacedBy` inside someone else's reply tree.** A reply tree shows the version of each reply that the parent's operator accepted. If a reader follows `replacedBy` there, anyone can get a harmless reply accepted and then edit it into abuse. Edited replies are new submissions, validated from scratch (Chapter 13).
 
-**Treating curation checks as one-time-on-arrival.** Curators publish new entries continuously. Content that was acceptable when it arrived may match a new curation entry published tomorrow. Retroactive matching must be implemented: when your curation feed sync pulls new entries, check each new hash against your stored content index. An operator that checks content only on arrival will miss curation entries published after the content was stored.
+**Rewriting archive objects.** Edits, deletions, and re-signatures go in the StateMap and new activities, never into existing entries or epochs. A RootManifest that commits to a different CID for an epoch a peer has already seen is treated as evidence of key compromise (Chapter 34).
 
-**Not implementing exponential backoff for reply submission retries.** When Alice's operator is temporarily unreachable, Bob's operator must retry with exponential backoff — not immediate retries. Implementations that retry in a tight loop (or with a fixed 1-second delay) will hammer unreachable operators and may be rate-limited or blocked by other operators' anti-abuse systems. Correct behavior: exponential backoff starting at 1 second, doubling each attempt, up to a configurable maximum (typically 1 hour), with a 24-hour total retry window.
+**Adding objects with `ipfs add` defaults.** `ipfs add` wraps bytes in UnixFS, and its defaults (CIDv0, 256 KiB chunks, no raw leaves) produce a CID that is not the object's identifier. Store Corundum objects with `block/put` and the `raw` codec. Use `add` only for media, and only with the fixed parameters of Chapter 15, so that every operator computes the same CID for the same file.
 
-**Using offset pagination on a live collection endpoint.** Any endpoint that returns a timeline or reply tree grows continuously. Offset-based pagination (`?page=3&size=20`) will produce duplicate and missing items when the collection changes between pages. Every collection endpoint must use cursor-based pagination.
+**Off-by-one in ArchiveIndex epoch boundaries.** Epoch 0 covers entries 0–255, epoch 1 covers 256–511, and so on. `epoch_index = floor(seq / 256)` and `offset_in_epoch = seq % 256` are always correct. Any other arithmetic produces lookups that silently return the wrong entry. Check that the entry's `seq` equals the requested one, and that it equals the activity's `seq` (Chapter 10).
+
+**Not distributing deletion notifications.** When a user deletes a post, notify the operators known to have fetched it (Chapter 13). If you only unpin locally, the content persists on other nodes despite the deletion.
+
+**Treating curation checks as one-time-on-arrival.** Curators publish new entries continuously. When your curation sync pulls new entries, check each new hash against your stored content index. Content that was acceptable on arrival may match an entry published tomorrow.
+
+**Retrying reply submissions without backoff.** When the target operator is unreachable, retry after 1, 4, 16, and 64 seconds, then keep backing off up to a configurable maximum (typically 1 hour), and abandon after 24 hours (Chapter 21). Tight retry loops hammer unreachable operators and get you rate-limited or blocked.
+
+**Using offset pagination on a live collection endpoint.** Timelines and reply trees grow continuously, so `?page=3&size=20` produces duplicate and missing items. Use cursors.
 
 ### Chapter 44: Verification Checklist
 
-When receiving a signed object, verify in this order:
+**Signed objects.** Verify activities with the procedure in Chapter 34 ("Verifying an activity"), and attached JWS objects with the same header and profile checks. Do not reimplement the steps from memory. In outline: check the CID of the received bytes, check each protected header exactly, verify the signature under the strict profile, confirm that the required set is fully covered or that the activity is reachable from the current RootManifest, and defer if anything is unreachable.
 
-1. Check that the `signatureAlgorithm` is acceptable per your policy and is not on the PROHIBITED list.
-2. If the primary algorithm is unacceptable, check `resignatures` for an acceptable alternative.
-3. Check that all algorithms you REQUIRE (based on the sender's declared active keys in their manifest) have valid signatures present.
-4. Extract and decode the signature.
-5. Remove `signature`, `signatureAlgorithm`, and `resignatures` from the object.
-6. Canonicalize all timestamps.
-7. Apply NFKC normalization to all strings.
-8. Serialize to Canonical JSON.
-9. Verify the signature against the claimed public key.
-10. Verify the public key belongs to the claimed identity (via IPNS resolution, DID document, or operator manifest).
+**Reply submissions**, additionally:
 
-When receiving a reply submission, additionally:
+1. Verify the submitting operator's HTTP Message Signature (Chapter 19), including `content-digest`, and check `corundum-timestamp` against the clock skew tolerance (default 300 seconds).
+2. Verify the inline SigningRecord against the reply's bytes (Chapter 34). Activities not yet in an archive need signatures from every key in the author's current required set.
+3. Check the parent author's reply policy against the reply author and the submitting operator (Chapter 22).
+4. Look up the reply author's DID in the parent author's block list (Chapter 23).
+5. Run the content against subscribed curation feeds (Chapter 31).
+6. Apply rate limits.
 
-1. Verify the submitting operator's HTTP Message Signature, including `content-digest` and `corundum-timestamp`.
-2. Check that the timestamp is within the acceptable clock skew window (default: 300 seconds).
-3. Verify the inline signing record's signature against the reply content.
-4. Compute the content hash of the reply content and verify it matches the claimed `contentHash`.
-5. Check the target user's reply policy against the submitting operator's trust level.
-6. Check the reply author's IPNS identity against the target user's block list (Bloom filter fast path, then full check if needed).
-7. Run the content against subscribed curation feeds.
-8. Apply rate limits based on the submitting operator's trust level.
+Reject a failing submission with a `corundum:Error` whose `code` is `REPLY_REJECTED`, giving the reason in `details.reason` (Chapter 37).
 
-### Chapter 45: Canonical Serialization Test Vectors
+### Chapter 45: Test Vectors
 
-Implementations should validate against these test vectors before considering serialization conformant.
+The spec will publish test vectors in these three groups. Implementations should pass all of them before claiming conformance:
 
-**Key sort**: `{"z":3,"a":1,"m":2}` → `{"a":1,"m":2,"z":3}`
+1. **Activity bytes and raw CIDs.** Exact activity bytes, given as hex, with the CIDv1 (`raw`, `sha2-256`) of each. Implementations must reproduce the CID from the bytes without parsing them.
+2. **Detached JWS.** SigningRecords over those activity bytes, made with a published RFC 8032 test key (for example, one from RFC 8032 §7.1). Each vector gives its protected header and the expected signature. Negative vectors carry an extra header parameter, the wrong `corundumType`, or a payload changed by one byte.
+3. **Strict-profile Ed25519 edge cases.** Taken from an external source, such as the test vectors of "Taming the many EdDSAs" (Chalkias, Garillot, Nikolaenko, 2020). These cover non-canonical `A` and `R`, small-order points, `S ≥ L`, and the cofactored/cofactorless split. Each case gives the result required by the Chapter 34 profile.
 
-**Nested key sort**: `{"b":{"y":2,"a":1},"a":3}` → `{"a":3,"b":{"a":1,"y":2}}`
-
-**No whitespace**: `{ "a" : 1 }` → `{"a":1}`
-
-**Timestamp normalization**:
-- `"2025-02-01T14:30:00.000Z"` → `"2025-02-01T14:30:00Z"` (trailing zeros stripped)
-- `"2025-02-01T14:30:00.100Z"` → `"2025-02-01T14:30:00.1Z"` (trailing zeros stripped, significant digit kept)
-- `"2025-02-01t14:30:00z"` → `"2025-02-01T14:30:00Z"` (uppercase T and Z)
-
-**Number representation**:
-- `1.0` → `1`
-- `1.5` → `1.5`
-- `1e10` → `10000000000`
-- `-0.0` → `0`
-
-**Null field omission**: `{"a":1,"b":null,"c":3}` where `b` is an optional field → `{"a":1,"c":3}`
-
-**Unicode normalization**: Any string containing `\u0065\u0301` (e + combining acute) must be normalized to `\u00e9` (precomposed é) before serialization.
-
-The spec provides a complete example RootManifest, its Canonical JSON form, and a test Ed25519 keypair for end-to-end implementation verification.
+One raw CID can be checked now. The 12 bytes `68 65 6c 6c 6f 20 77 6f 72 6c 64 0a` (ASCII `hello world` followed by a newline) have SHA-256 `a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447` and the raw CID `bafkreifjjcie6lypi6ny7amxnfftagclbuxndqonfipmb64f2km2devei4`. That CID is the multibase prefix `b` followed by the unpadded lowercase base32 of the bytes `01 55 12 20` and the digest. `printf 'hello world\n' | ipfs block put --cid-codec=raw --mhtype=sha2-256` returns the same CID.
 
 ### Chapter 46: IPFS in Practice
 
 The protocol specification describes what operators must store in IPFS and why. This chapter explains how: the software, the configuration patterns, and the operational tradeoffs.
 
-**The reference implementation: Kubo.** The reference IPFS implementation is Kubo (formerly go-ipfs), maintained by Protocol Labs. Kubo is the de facto standard; other IPFS implementations (Iroh, Helia for JavaScript) exist but have different APIs and maturity levels. Corundum operators should use Kubo. The relevant interface is Kubo's HTTP API, which runs on port 5001 by default: a REST-ish API for adding, pinning, and fetching IPFS objects. The Corundum protocol implementation communicates with Kubo via this API using HTTP requests; no IPFS client library is required. A thin HTTP client (`reqwest` in Rust) is sufficient.
+**The reference implementation: Kubo.** The reference IPFS implementation is Kubo (formerly go-ipfs). Other IPFS implementations (Iroh, Helia for JavaScript) exist but have different APIs and maturity levels. Corundum operators should use Kubo. The relevant interface is Kubo's RPC API, on port 5001 by default. The Corundum protocol server talks to it with a plain HTTP client (`reqwest` in Rust); no IPFS client library is required.
 
-The Kubo HTTP API's key operations for a Corundum operator:
+Every Kubo RPC call is a `POST`, including the read-only ones; Kubo rejects `GET` on `/api/v0`. The operations a Corundum operator needs:
 
 ```
-POST /api/v0/add           # add an object, returns CID
-GET  /api/v0/cat?arg={cid} # fetch an object by CID
-POST /api/v0/pin/add?arg={cid}   # pin an object (prevent GC)
-POST /api/v0/pin/rm?arg={cid}    # unpin an object
-GET  /api/v0/pin/ls              # list pinned objects
-POST /api/v0/name/publish?arg={cid}&key={keyname}  # publish IPNS name
-GET  /api/v0/name/resolve?arg={ipns}               # resolve IPNS name
+POST /api/v0/block/put?cid-codec=raw&mhtype=sha2-256     # store a Corundum object (multipart body); returns its CID
+POST /api/v0/block/get?arg={cid}                         # fetch a Corundum object's exact bytes
+POST /api/v0/add?cid-version=1&raw-leaves=true&chunker=size-1048576   # media files only (Chapter 15)
+POST /api/v0/pin/add?arg={cid}                           # pin (prevent GC)
+POST /api/v0/pin/rm?arg={cid}                            # unpin
+POST /api/v0/pin/ls                                      # list pins
+POST /api/v0/pin/remote/add?arg={cid}&service={service}&name={name}  # pin on a remote pinning service
+POST /api/v0/key/gen?arg={keyname}&type=ed25519          # create a keystore key
+POST /api/v0/name/publish?arg=/ipfs/{cid}&key={keyname}  # publish an IPNS record
+POST /api/v0/name/resolve?arg=/ipns/{name}               # resolve an IPNS name
 ```
 
-**Pinning strategy.** IPFS garbage collection removes objects that are not pinned. An operator must pin everything it wants to retain: user manifests, all timeline entries, all activity objects, all signing records, all media manifests and chunks. "Pin" means "do not garbage collect this object." The flip side: when a user deletes a post (publishes a tombstone), the operator unpins the activity object, and GC will eventually reclaim the space.
+Use `block/put` for every Corundum object, never `add`. `add` wraps the bytes in UnixFS, which gives a different CID from the object's identifier. Corundum objects are at most 1 MiB, which is also the largest block Kubo accepts by default. After `block/put`, compare the returned CID with the one you computed yourself. Use `block/get`, not `cat`, to fetch objects; `cat` reads UnixFS files. For media, `add` must use the parameters shown above, which are the fixed parameters of Chapter 15.
+
+**Pinning strategy.** IPFS garbage collection removes objects that are not pinned. Corundum objects are raw blocks with no IPFS-level links (Chapter 9), so pinning a RootManifest does not pin anything it references. Pin each object you keep individually: manifests, chunks, epochs, index pages, StateMap and ReplyMap pages, activities, SigningRecords, and media. When a user deletes a post, unpin the activity and its SigningRecords (Chapter 13), and GC will eventually reclaim the space.
 
 Two pinning approaches:
 
 *Local-only pinning* stores everything on the operator's own IPFS node. Simple to operate, all data under the operator's control, no external service dependencies. Suitable for small-to-medium operators. The risk is single-node data loss if the IPFS node's disk fails and there are no replicas.
 
-*Hybrid pinning* combines a local node (for fast access, serving content to other IPFS nodes) with a remote pinning service (Pinata, Web3.Storage, Filebase, or similar) for durability. The operator pins content to both the local node and the pinning service. If the local node fails, content is still available through the pinning service's IPFS nodes. For production operators serving many users, hybrid pinning is recommended: it provides redundancy without requiring the operator to run a distributed IPFS cluster.
+*Hybrid pinning* combines a local node (for fast access, serving content to other IPFS nodes) with a remote pinning service (Pinata, Filebase, or similar) for durability. The operator pins content to both the local node and the pinning service. If the local node fails, content is still available through the pinning service's IPFS nodes. For production operators serving many users, hybrid pinning is recommended: it provides redundancy without requiring the operator to run a distributed IPFS cluster.
 
-The Kubo HTTP API supports remote pinning services via the `pinner` API: `POST /api/v0/pin/remote/add?service={service}&cid={cid}&name={name}`.
+Kubo talks to remote services through the IPFS Pinning Service API. Register a service with `pin/remote/service/add`, then call `pin/remote/add` with the CID as `arg`.
 
-**Garbage collection.** Never run IPFS GC automatically on a production Corundum node. The default Kubo configuration has GC disabled by default, but this should be verified. Automatic GC can delete objects that are needed but not yet pinned — for example, objects that were just added but whose pin call was interrupted before completing. On a Corundum operator, all content should either be pinned or available for deletion; there should be no ambiguous intermediate state. Manual GC can be run during scheduled maintenance windows after verifying that all required objects are pinned. Unpinning and GC should be strictly ordered: unpin first, then verify the unpin took effect, then run GC.
+**Garbage collection.** Never run IPFS GC automatically on a production Corundum node. Kubo does not run GC automatically unless the daemon is started with `--enable-gc`; check that your deployment does not do so. Automatic GC can delete objects that were added but whose pin call was interrupted. Run GC manually during maintenance, after confirming that every required object is pinned. Unpin first, confirm the unpin took effect, and only then run GC.
 
-**IPNS publishing.** Each user's identity requires a Kubo keypair for IPNS. Kubo stores keys by name; the operator assigns each user a key name (typically the user's DID or a derived identifier). IPNS publishing calls: `POST /api/v0/name/publish?arg={rootManifestCID}&key={userKeyName}`. Kubo signs the IPNS record and publishes it to the DHT.
+**IPNS publishing.** A user's IPNS name is their Ed25519 content key (Chapter 5). The operator also publishes its ReplyMap under an IPNS name of its own (Chapter 10). IPNS names are written as CIDv1 `libp2p-key` identifiers in base36: 62 characters, beginning `k51`. `name/publish` signs the record with a key from Kubo's keystore, publishes it to the DHT, and propagates it over minutes. Readers should not have to wait for that. Serve each current IPNS record at `GET /routing/v1/ipns/{name}` (Chapter 5) from the protocol server. Kubo returns the signed record from `routing/get?arg=/ipns/{name}`.
 
-IPNS publication is not instantaneous: the DHT announcement propagates over minutes. For time-sensitive operations (immediate visibility of a new post), other operators that have an HTTP connection to the operator can fetch the current manifest directly via the operator's HTTP API rather than via DHT resolution. DHT is the fallback for operators that don't have a direct connection.
-
-Kubo supports keeping keys in memory (ephemeral, lost on restart), in the keystore (persisted on disk), or in an external key management system via the keystore API. For production operators, use the Kubo keystore with encrypted disk storage, not in-memory ephemeral keys. Consider using HSM-backed key storage for large deployments where key compromise would affect many users.
+**Where content keys live.** Kubo's keystore is a directory of unencrypted private key files under the repository. It has no support for external key management or HSMs. Kubo is therefore not where operator-custodied content keys belong. Keep them in the operator's own key storage, such as an HSM, a cloud KMS, or an encrypted secrets store, with the same protection as the operator's own signing keys. One compromise of that storage compromises every user it holds. The consequence for publishing: `name/publish` only works with a key in Kubo's keystore. An operator that keeps content keys elsewhere must create IPNS records with its own signer. It can then serve those records directly from `/routing/v1/ipns/{name}`, and give them to Kubo for DHT publication with `routing/put?arg=/ipns/{name}`, which validates a record that someone else signed. Check that your Kubo version supports `routing/put` for IPNS records before relying on it. Importing content keys into Kubo's keystore is acceptable only where the keystore's disk protection meets the operator's key-storage requirements. Self-custody users sign their own records, and the operator only serves and republishes them.
 
 **Content routing and connectivity.** Kubo connects to other IPFS nodes via the public IPFS DHT (libp2p). The DHT provides content routing: when another IPFS node wants to find who has a particular CID, it queries the DHT. A Corundum operator's IPFS node should be publicly reachable on libp2p ports (default: 4001) so that other IPFS nodes can fetch content from it.
 
@@ -167,13 +148,13 @@ In practice, direct libp2p connectivity is often blocked by NAT or firewalls. Ku
 
 **Scaling IPFS.** For large operators (millions of users, billions of objects), a single Kubo node becomes a bottleneck. Two scaling options:
 
-*IPFS Cluster* orchestrates multiple Kubo nodes, distributing pinning and replication across them. Cluster handles leader election, distributed pin tracking, and replication factor management. An operator with three IPFS nodes in a cluster can configure a replication factor of 3, meaning every pinned object exists on all three nodes.
+*IPFS Cluster* orchestrates multiple Kubo nodes, distributing pinning and replication across them. Cluster handles distributed pin tracking and replication factor management. An operator with three IPFS nodes in a cluster can configure a replication factor of 3, meaning every pinned object exists on all three nodes.
 
 *Delegated routing* separates the DHT routing function from the storage function. A delegated routing server maintains the DHT index while storage nodes handle content. This allows content storage to scale independently of routing capacity.
 
 Both approaches are non-trivial to operate. For most operators, starting with a single Kubo node (with a remote pinning service for redundancy) and migrating to IPFS Cluster when single-node limits are hit is the pragmatic path.
 
-**The Kubo HTTP API is not the user-facing API.** The Kubo HTTP API runs on localhost and should not be exposed to the internet. It has no authentication by default — anyone who can reach it can add, pin, and delete content. The Corundum protocol server (the Axum/HTTP application that handles inter-operator requests) runs on a public port and talks to Kubo on localhost. The architecture is: internet → Corundum protocol server (authenticated, public) → Kubo HTTP API (unauthenticated, localhost-only).
+**The Kubo RPC API is not the user-facing API.** It is an admin interface. Anyone who can reach it can add, pin, and delete content, and can use every key in the keystore. Bind it to localhost and never expose it to the internet. The Corundum protocol server (the HTTP application that handles inter-operator requests) runs on a public port and talks to Kubo on localhost. The architecture is: internet → Corundum protocol server (authenticated, public) → Kubo RPC API (localhost-only).
 
 ---
 

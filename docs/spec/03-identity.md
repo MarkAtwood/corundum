@@ -28,7 +28,7 @@ Plain `did:web` is not accepted. A `did:web` document has no signed history, so 
 - It is the user's **content-signing key**. For Ed25519, the IPNS name embeds the public key itself (as an identity multihash), so anyone who has the name has the key. This key signs the user's activities and RootManifests (Chapter 34).
 - It is the **pointer to the user's RootManifest** (Chapter 9). An IPNS record is a small signed object, issued by the IPNS key, that names the current RootManifest's CID and carries a sequence number so readers can reject old records.
 
-An IPNS record is self-verifying, so it does not matter who serves it. Readers fetch it the fast way first: from the user's operator, using the standard IPFS delegated routing endpoint (`GET /routing/v1/ipns/{name}`), and then fetch the RootManifest by CID. DHT resolution (typically 30–60 seconds) is the fallback for when the operator is unreachable.
+An IPNS record is self-verifying, so it does not matter who serves it. Readers fetch it the fast way first: from the user's operator, using the standard IPFS delegated routing endpoint (`GET /routing/v1/ipns/{name}`) at the origin (scheme, host, and port) of the user's `operatorEndpoint`, and then fetch the RootManifest by CID. DHT resolution (typically 30–60 seconds) is the fallback for when the operator is unreachable.
 
 The IPNS name changes whenever the content key changes, for example when the user moves to a new operator. Nobody needs to remember it: the DID always names the current one.
 

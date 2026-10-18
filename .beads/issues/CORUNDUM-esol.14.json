@@ -3,13 +3,15 @@
   "title": "Align implementation guide (Ch 41-46)",
   "description": "15-implementation-guide. Kubo RPC is POST-only; pin/remote/add takes arg=; no 'pinner' API; /api/v0/add yields UnixFS CID, use block/put with cid-codec=raw; Kubo keystore not encrypted, no external key mgmt; retry backoff doubling vs 1/4/16/64; '52-char base58' IPNS names. Update to D1-D4.",
   "notes": "From esol.4: delete Ch 41 item 6 (Canonical JSON), Ch 43 NFKC/id-less-CID mistakes, Ch 44 verification steps (replace with Ch 34 procedure), Ch 45 canonical-JSON vectors (replace via esol.13 with JWS + Ed25519 strict-profile vectors, e.g. 'Taming the many EdDSAs' edge cases), Ch 46 use block/put --cid-codec=raw.\nFrom esol.3: 15:29 'did:web at minimum' -\u003e did:webvh required (plain did:web not accepted); 15:67 DID cache TTL max 24h, prefer did:webvh ttl; 15:162 Kubo keystore holds operator-custodied content keys only; add WebFinger handle resolution; IPNS records served via /routing/v1/ipns/{name}.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "issue_type": "bug",
   "owner": "mark@reviewcommit.com",
   "created_at": "2026-10-18T16:43:43.493940753Z",
   "created_by": "agent",
-  "updated_at": "2026-10-18T17:13:00.026148125Z",
+  "updated_at": "2026-10-18T17:21:35.799988922Z",
+  "closed_at": "2026-10-18T17:21:35.799988922Z",
+  "close_reason": "Ch 41-46 aligned with JWS/raw CIDs/DID identity/StateMap/ReplyMap; Kubo calls corrected (POST, block/put raw, fixed add params); one vector (hello world raw CID) cross-checked with multiformats lib. Open: Kubo routing/put for externally-signed IPNS records unverified.",
   "dependencies": [
     {
       "issue_id": "CORUNDUM-esol.14",
