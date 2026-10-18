@@ -1,50 +1,36 @@
-## Appendix A: Specification Document Index
+## Appendix: Normative References
 
-The complete protocol is specified across these documents:
+The protocol builds on these standards. Each is cited where it is used.
 
-| Document | What It Defines |
-|----------|-----------------|
-| Canonical Serialization Spec | Deterministic JSON/CBOR serialization, signing, verification, content hashing |
-| DID Identity Spec | DID documents, supported methods, handle resolution, key rotation, recovery |
-| Timeline Merkle Tree Spec | RootManifest, chunks, epochs, entries, tombstones, migration audit trail |
-| Activity Types Spec | Standard activity types (Note, Article, Image, etc.) |
-| Extensible Activity Types Spec | ATD system, content modes, reply types, reactions, type registry |
-| Reply Protocol Spec | Inter-operator reply submission, validation, acceptance, rejection, thread management |
-| Social Graph Spec | Follows, blocks, mutes, Bloom filters, cross-operator synchronization |
-| Curation Feed Spec | Authority declarations, curation entries, hash types, reason taxonomy |
-| Static Curation Hosting Spec | S3/CDN-compatible static hosting for curation feeds |
-| Operator Authentication Spec | HTTP Message Signatures, trust levels, key management |
-| Operator Manifest Spec | `/.well-known/corundum-operator` schema and semantics |
-| Operator Discovery Spec | How operators find each other |
-| Operator Best Practices | Non-normative operational guidance |
-| Large Media Handling Spec | MediaManifest, chunked storage, resumable uploads, adaptive streaming |
-| Event Stream Spec | WebSocket/SSE real-time events |
-| Pagination Spec | Cursor-based pagination envelope |
-| Error Response Spec | Standard error envelope and error codes |
-| Algorithm Sunset Registry | Cryptographic algorithm lifecycle |
-| Content Retention Guide | Conflict resolution for retention/deletion |
-| Language Tagging Guide | Language metadata best practices |
-| Timestamp Precision Guide | RFC 3339 timestamp rules |
-| Consolidated Bibliography | All normative and informative references |
+**Data and content addressing**
 
-## Appendix B: Normative Standards Referenced
-
-The protocol builds on:
-
-- **IPFS/IPNS/IPLD**: Content-addressed storage, naming, and linked data
-- **W3C DIDs**: Decentralized Identifiers
-- **W3C ActivityStreams 2.0**: Social activity data model
-- **RFC 8032**: Ed25519 signatures
+- **IPFS**: content-addressed storage; CIDs, multihash, and multibase (multiformats specifications); UnixFS file layout (Chapter 15); IPNS records; the Delegated Routing V1 HTTP API (`/routing/v1/ipns/{name}`, Chapter 5)
+- **W3C ActivityStreams 2.0**: social activity data model
 - **RFC 7493**: I-JSON
+- **RFC 3339**: timestamps
+- **BCP 47**: language tags
+
+**Identity**
+
+- **W3C DID Core**: Decentralized Identifiers
+- **did:webvh**, **did:plc**, **did:key**: the accepted DID methods (Chapter 5)
+- **RFC 7033**: WebFinger (account handles, Chapter 8)
+
+**Cryptography**
+
 - **RFC 7515**: JSON Web Signature
 - **RFC 7797**: JWS Unencoded Payload Option
-- **RFC 9864**: Fully-specified JOSE algorithms (`Ed25519`)
-- **RFC 9421**: HTTP Message Signatures
-- **RFC 3339**: Timestamps
+- **RFC 7516**: JSON Web Encryption (encrypted lists, Chapter 25)
+- **RFC 8037**: OKP keys for JOSE (X25519)
+- **RFC 9864**: fully specified JOSE algorithms (`Ed25519`)
+- **RFC 8032**: Ed25519
 - **FIPS 180-4**: SHA-256
 - **FIPS 204**: ML-DSA (provisional, Chapter 36)
-- **RFC 8949**: CBOR
-- **RFC 9457**: Problem Details for HTTP APIs
+
+**HTTP**
+
+- **RFC 9421**: HTTP Message Signatures
+- **RFC 9530**: Digest Fields (`Content-Digest`)
 
 ---
 

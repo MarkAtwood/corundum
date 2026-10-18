@@ -20,7 +20,9 @@ This philosophy shows up in what Corundum leaves undefined. It does not specify 
 
 The phrase "inter-operator backbone" is worth unpacking. When a user on one Mastodon instance sends a reply to a user on another instance, the two servers exchange ActivityPub messages. That exchange is the backbone. Corundum's backbone covers the same territory — reply routing, content exchange, social graph synchronization, operator authentication — but also extends into areas ActivityPub doesn't address: portable identity, content-addressed archives, and the curation layer. The backbone is what lets operators federate. Everything client-facing — the app, the algorithm, the subscription tier — sits on top of the backbone and is the operator's own business.
 
-This book explains the complete protocol as specified across its roughly two dozen interlocking specification documents, in a form suitable for understanding or building an implementation. It attempts to explain not just what the protocol requires but why it makes each choice, because the choices only make sense in the context of the problems they solve.
+This book is the complete protocol specification, written in a form suitable for understanding or building an implementation. It attempts to explain not just what the protocol requires but why it makes each choice, because the choices only make sense in the context of the problems they solve.
 
+
+The key words MUST, MUST NOT, REQUIRED, SHALL, SHALL NOT, SHOULD, SHOULD NOT, RECOMMENDED, NOT RECOMMENDED, MAY, and OPTIONAL in this book are to be interpreted as described in BCP 14 (RFC 2119, RFC 8174) when, and only when, they appear in all capitals. Chapters and documents marked non-normative, including everything under `docs/client-api/`, use these words only to describe the reference implementation's own choices.
 ---
 
