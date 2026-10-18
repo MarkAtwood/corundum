@@ -28,7 +28,7 @@ Plain `did:web` is not accepted. A `did:web` document has no signed history, so 
 - It is the user's **content-signing key**. For Ed25519, the IPNS name embeds the public key itself (as an identity multihash), so anyone who has the name has the key. This key signs the user's activities and RootManifests (Chapter 34).
 - It is the **pointer to the user's RootManifest** (Chapter 9). An IPNS record is a small signed object, issued by the IPNS key, that names the current RootManifest's CID and carries a sequence number so readers can reject old records.
 
-An IPNS record is self-verifying, so it does not matter who serves it. Readers fetch it the fast way first: from the user's operator, using the standard IPFS delegated routing endpoint (`GET /routing/v1/ipns/{name}`) at the origin (scheme, host, and port) of the user's `operatorEndpoint`, and then fetch the RootManifest by CID. DHT resolution (typically 30–60 seconds) is the fallback for when the operator is unreachable.
+An IPNS record is self-verifying, so it does not matter who serves it. Readers fetch it the fast way first: from the user's operator, using the standard IPFS delegated routing endpoint (`GET /routing/v1/ipns/{name}`) at the user's `operatorEndpoint`, and then fetch the RootManifest by CID. DHT resolution (typically 30–60 seconds) is the fallback for when the operator is unreachable.
 
 The IPNS name changes whenever the content key changes, for example when the user moves to a new operator. Nobody needs to remember it: the DID always names the current one.
 
@@ -63,7 +63,7 @@ A DID document for a Corundum user declares the user's content keys, their opera
       "type": "CorundumIdentity",
       "serviceEndpoint": {
         "ipnsName": "<IPNS name of Alice's content key>",
-        "operatorEndpoint": "https://birdsite.example/corundum/v1",
+        "operatorEndpoint": "https://birdsite.example",
         "listKey": "<multibase X25519 public key>"
       }
     }
@@ -76,7 +76,7 @@ The `CorundumIdentity` service entry is what connects the DID to the Corundum co
 | Member | Required | Meaning |
 |---|---|---|
 | `ipnsName` | REQUIRED | The user's current IPNS name: the Ed25519 content-signing key and the pointer to the RootManifest. |
-| `operatorEndpoint` | REQUIRED | The base URL of the user's operator. |
+| `operatorEndpoint` | REQUIRED | The origin (scheme, host, and optional port, with no path) of the user's operator. It equals the `id` of the operator's Operator Manifest, which is served at `{operatorEndpoint}/.well-known/corundum-operator` (Chapter 18); the operator's protocol paths are relative to it. |
 | `listKey` | REQUIRED | The X25519 public key, as multibase, to which the user's encrypted follow, block, and mute lists are encrypted (Chapter 25). Its private half is kept with the user's recovery material. |
 | `additionalKeys` | OPTIONAL | Further content-signing keys, each an object with `kid`, `alg` (Chapter 36), and `publicKeyMultibase`. Used to add an algorithm alongside Ed25519 (Chapter 35). |
 
@@ -162,6 +162,6 @@ An account handle belongs to the operator's namespace, as an email address belon
 _corundum.alice.example. 3600 IN TXT "did=did:webvh:<SCID>:birdsite.example:users:alice"
 ```
 
-The DID document then lists `dns:alice.example` in `alsoKnownAs`. The record names only the DID, not the IPNS name, so it does not go stale when the content key changes. Its integrity depends on DNS, so resolvers SHOULD validate DNSSEC where it is deployed.
+The DID document then lists `dns:alice.example` in `alsoKnownAs`. A resolver concatenates the character-strings of each TXT record at the name and considers only records that begin with `did=`. Exactly one such record MUST be present; zero or several is a resolution failure. Other records at the name are ignored. A DNS wildcard can make the name resolve for handles nobody set up, but that is harmless: bidirectional verification fails unless the DID document also lists the handle. The record names only the DID, not the IPNS name, so it does not go stale when the content key changes. Its integrity depends on DNS, so resolvers SHOULD validate DNSSEC where it is deployed.
 
 **Requirements.** Implementations MUST support both methods. The verification is always: resolve the handle to a DID, check that the DID document lists the handle, and only then display the handle as the user's.
