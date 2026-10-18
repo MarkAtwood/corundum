@@ -1,1 +1,2 @@
 {"id":"01a1500a-11de-769c-96e2-569dc862945a","issue_id":"CORUNDUM-esol.19","event_type":"created","actor":"agent","old_value":"","new_value":"","created_at":"2026-10-18T17:23:19.64643471Z"}
+{"id":"01a15021-fb93-7bf2-b4ce-d36833bdd99b","issue_id":"CORUNDUM-esol.19","event_type":"closed","actor":"agent","old_value":"","new_value":"Decided (Mark 2026-10-18): every activity is public (to MUST include as:Public; Ch 11); reply policies limit replies, not readers; post.published emitted for every activity.","created_at":"2026-10-18T17:49:26.803784649Z"}

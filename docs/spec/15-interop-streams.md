@@ -94,7 +94,7 @@ The stream carries no social-graph events. A follow or block concerns one other 
 
 #### Event Type: `post.published`
 
-A user on this operator published a new activity.
+A user on this operator published a new activity. Every activity is public (Chapter 11), so the event is emitted for every activity, to every authorized subscriber, whatever the post's reply policy.
 
 ```json
 {

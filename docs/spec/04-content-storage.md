@@ -185,6 +185,8 @@ An example reply with a content warning:
 
 `seq` is the activity's position in its author's timeline, and MUST equal the `seq` of the entry that names it (Chapter 10). Carrying it in the activity lets anyone who holds only the activity's identifier find its slot in the author's StateMap and ReplyMap directly. Whoever publishes the author's RootManifest assigns it.
 
+`to` MUST include `https://www.w3.org/ns/activitystreams#Public`. Every Corundum activity is public: it is stored in public IPFS, and anyone who has its identifier can fetch it. Corundum has no followers-only or unlisted posts; private conversation is out of scope (Chapter 40). A reply policy (Chapter 22) limits who may reply to a post, never who may read it. Operators MUST reject an activity whose `to` lacks the public collection.
+
 `published` is the author-declared timestamp. It is signed as part of the activity, so it represents what the author claimed the publication time to be. Operators may add their own receipt timestamps, but the `published` field is the author's timestamp.
 
 `language` is a BCP 47 language tag (`"en"`, `"zh-Hant"`, `"fr-CA"`). This is used by operators for language-specific filtering and feed construction, and by client apps for localization decisions. It is optional: if omitted, the language is unspecified. Operators should not attempt to infer language from content; if the author didn't declare it, treat it as unknown.
