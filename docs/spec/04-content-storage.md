@@ -153,6 +153,8 @@ An example reply with a content warning:
 
 `inReplyTo` is the identifier of the activity being replied to. Its presence is what triggers the reply protocol: when an operator processes a new activity with `inReplyTo` set, it must route the activity through the inter-operator reply submission process to the parent post's author's operator.
 
+`replyPolicy` is optional and says who may reply to this post (Chapter 22). Because it is part of the signed activity, it travels with the post and changes only by an edit.
+
 `replaces` is present only on an edit: it is the identifier of the version this activity replaces (Chapter 13).
 
 `expiresAt` is an optional RFC 3339 time after which operators stop displaying the activity, for content designed to disappear, like stories. It is the only place expiry is recorded (Chapter 39).
@@ -260,7 +262,7 @@ The signature is detached because the activity's identifier is the hash of its b
 
 **Resignatures.** Re-signing an activity, for example to add a post-quantum signature, produces a new SigningRecord containing all of the activity's signatures. The activity and its identifier are unchanged. The Entry in the archive keeps the CID of the original SigningRecord, because the archive tree never changes once written. The new SigningRecord's CID goes in the activity's StateMap slot (Chapter 10), outside the archive tree. Re-signing is never required to keep old content verifiable, because archived content is authenticated by inclusion in the current RootManifest (Chapter 34).
 
-**Reply submissions** include the signing record inline (not by CID), so the receiving operator does not need a separate IPFS fetch for it during reply validation.
+**Reply submissions** carry the activity's bytes and its SigningRecord inline (Chapter 21), so the receiving operator needs no IPFS fetch during reply validation.
 
 **Out-of-band verification**: fetch the activity from IPFS by its identifier, fetch the signing record by the CID in the entry's `signingRecord` field, and verify the signature. Both objects can be fetched directly from IPFS; no operator API is required.
 

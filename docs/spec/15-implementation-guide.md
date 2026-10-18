@@ -18,7 +18,7 @@ To be a conforming Corundum operator, you must at minimum:
 
 7. **Support the Reply Protocol** (Chapter 21). Accept incoming reply submissions over authenticated HTTP POST. Verify the inline SigningRecord against the reply's bytes, check policies, and return either an acceptance or a `corundum:Error` with `code` `REPLY_REJECTED`. This is the core federation mechanism. Without it, your users cannot receive replies from users on other operators, and they cannot reply to posts hosted elsewhere. Federation without reply routing is read-only federation.
 
-8. **Sign inter-operator requests** using HTTP Message Signatures (RFC 9421) with `ed25519` (the RFC 9421 registry name), covering the components of Chapter 19: `@method`, `@target-uri`, `@authority`, `content-digest`, and `corundum-timestamp`. Without signing, other operators cannot authenticate your requests. They cannot check federation policy, cannot rate-limit you per operator, and cannot tell your traffic from an attacker impersonating you. Expect `401 Unauthorized` on unsigned requests.
+8. **Sign inter-operator requests** using HTTP Message Signatures (RFC 9421) with `ed25519` (the RFC 9421 registry name), covering the components of Chapter 19 (`@method`, `@target-uri`, `@authority`, and `content-digest` for requests with a body), with `created` and `expires` signature parameters. Without signing, other operators cannot authenticate your requests. They cannot check federation policy, cannot rate-limit you per operator, and cannot tell your traffic from an attacker impersonating you. Expect `401 Unauthorized` on unsigned requests.
 
 9. **Support the required algorithms**: Ed25519 for signatures and SHA-256 for hashes (Chapter 36). Reject every algorithm the registry does not list. Interoperability depends on everyone sharing this baseline.
 
@@ -82,16 +82,7 @@ Beyond the minimum:
 
 **Signed objects.** Verify activities with the procedure in Chapter 34 ("Verifying an activity"), and attached JWS objects with the same header and profile checks. Do not reimplement the steps from memory. In outline: check the CID of the received bytes, check each protected header exactly, verify the signature under the strict profile, confirm that the required set is fully covered or that the activity is reachable from the current RootManifest, and defer if anything is unreachable.
 
-**Reply submissions**, additionally:
-
-1. Verify the submitting operator's HTTP Message Signature (Chapter 19), including `content-digest`, and check `corundum-timestamp` against the clock skew tolerance (default 300 seconds).
-2. Verify the inline SigningRecord against the reply's bytes (Chapter 34). Activities not yet in an archive need signatures from every key in the author's current required set.
-3. Check the parent author's reply policy against the reply author and the submitting operator (Chapter 22).
-4. Look up the reply author's DID in the parent author's block list (Chapter 23).
-5. Run the content against subscribed curation feeds (Chapter 31).
-6. Apply rate limits.
-
-Reject a failing submission with a `corundum:Error` whose `code` is `REPLY_REJECTED`, giving the reason in `details.reason` (Chapter 37).
+**Reply submissions**, additionally: run the validation steps of Chapter 21 in the order given there. They start with the submitting operator's HTTP Message Signature (Chapter 19: `created`/`expires` within the allowed window, `content-digest`, every active key), then check that the inline activity bytes hash to the reply's identifier and that the inline SigningRecord verifies (Chapter 34), and go on to the parent's reply policy (Chapter 22), the block list (Chapter 23), curation (Chapter 31), and rate limits. Reject a failing submission with a `corundum:Error` whose `code` is `REPLY_REJECTED`, giving the reason in `details.reason` (Chapter 37).
 
 ### Chapter 45: Test Vectors
 

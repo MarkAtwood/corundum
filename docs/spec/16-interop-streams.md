@@ -32,7 +32,7 @@ Operators that declare `capabilities.eventStream: true` in their Operator Manife
 GET /corundum/v1/events
 ```
 
-The request MUST be authenticated per Chapter 19. Because the request has no body, `content-digest` is omitted from the required components (per the normative table in Chapter 19). Required components: `"@method"`, `"@target-uri"`, `"@authority"`, `"corundum-timestamp"`.
+The request MUST be authenticated per Chapter 19. Because the request has no body, `content-digest` is omitted from the required components (per the normative table in Chapter 19). Required components: `"@method"`, `"@target-uri"`, `"@authority"`, with the `created` and `expires` signature parameters.
 
 **Query parameters:**
 

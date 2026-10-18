@@ -15,8 +15,8 @@ Every Corundum endpoint, inter-operator and client-facing, MUST return a non-2xx
   "retryable": false,
   "details": {
     "reason": "blocked-user",
-    "parentId": "bafyreib4pff766vhpbxbhjbqqnsh5emeznvujayjj4z2iu533cprgbz23m",
-    "replyCid": "bafyreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku"
+    "parentId": "<identifier of the parent post>",
+    "replyId": "<identifier of the rejected reply>"
   }
 }
 ```
@@ -62,7 +62,7 @@ Receivers MUST ignore unknown `details` fields. A receiver that gets an unknown 
 | `IDENTITY_NOT_FOUND` | 404 | false | The identity does not exist on this operator. |
 | `DID_RESOLUTION_FAILED` | 502 | true | The DID document could not be fetched. |
 | `HANDLE_VERIFICATION_FAILED` | 400 | false | The handle does not verify against the identity. |
-| `REPLY_REJECTED` | per reason | `rate-limited` only | Reply submission rejected. Status and `details.reason` per the Chapter 21 table. |
+| `REPLY_REJECTED` | per reason | `rate-limited` and `follow-not-yet-known` only | Reply submission rejected. Status and `details.reason` per the Chapter 21 table. |
 | `CURATION_AUTHORITY_INVALID` | 400 | false | The curation authority declaration is invalid or does not match its fetch URL. |
 | `HASH_TYPE_UNSUPPORTED` | 400 | false | The curation hash type is not supported. |
 | `CURATION_EXPIRED` | 400 | false | The curation entry or declaration is past its validity. |
