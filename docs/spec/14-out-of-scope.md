@@ -6,7 +6,7 @@ The specification is deliberately silent on several categories of concern. These
 
 #### Out of Scope by Design
 
-**Client/server protocols.** Corundum is an inter-operator backbone, not a client-facing protocol. Each operator uses whatever API it wants with its own users. Specifying client/server APIs would constrain operator innovation and create a monoculture of client software. The diversity of client experiences — different apps, different interfaces, different feature sets — is a feature, not a bug. Corundum only specifies what operators say to each other.
+**Client/server protocols.** Corundum is an inter-operator backbone, not a client-facing protocol. Each operator uses whatever API it wants with its own users. Specifying client/server APIs would constrain operator innovation and create a monoculture of client software. The diversity of client experiences — different apps, different interfaces, different feature sets — is a feature, not a bug. Corundum only specifies what operators say to each other. `docs/client-api/` describes a reference client API as a non-normative convenience; operators are free to ignore it.
 
 **Business models.** Operators and curators can charge, run ads, operate as nonprofits, or do whatever makes sense for their operation. The protocol provides no mechanisms for monetization because monetization is a business decision, not an interoperability concern. An operator that requires payment for federation with it is free to implement that through its own authentication layer; Corundum provides the authenticated channel, not the business logic.
 
@@ -20,11 +20,11 @@ The specification is deliberately silent on several categories of concern. These
 
 **End-to-end encryption.** Private messaging with E2E encryption is listed as a future consideration. The protocol infrastructure — IPFS content addressing, DID-based key management — would support it, but the specific key exchange protocols, group key management, and forward secrecy mechanisms are not yet specified.
 
-**Compact membership proofs.** The current social graph structure uses Bloom filters for efficient block list membership checks. A more rigorous approach would use cryptographic accumulators or zk-SNARKs for membership proofs that are both compact and zero-knowledge. The ArchiveIndex was designed to be compatible with adding a Merkle-based membership proof layer without changing the fundamental structure.
+**Private block lists.** Block lists are stored encrypted in the RootManifest, and a block is visible to the blocked user's operator (Chapter 25); the protocol does not pretend otherwise and uses no Bloom filters or Merkle membership proofs. Hiding blocks from the blocked user's operator, for example with zero-knowledge membership proofs, is future work, and nothing in the current structure depends on it.
 
 **Private groups.** Group content that is visible only to members, with operator-enforced access control and potentially E2E encryption for the content. Related to but distinct from private messaging.
 
-**Cross-protocol bridges.** Formal bridge specifications for ActivityPub (Mastodon) and AT Protocol (Bluesky) interoperability are future work. The data model compatibility (ActivityStreams) makes ActivityPub bridges straightforward at the content level; the identity model differences require careful handling.
+**Cross-protocol bridges.** Federation bridges to ActivityPub (Mastodon) and AT Protocol (Bluesky) are out of scope, and they are not trivial. Sharing the ActivityStreams vocabulary does not make an ActivityPub bridge straightforward: Corundum activity identifiers are CIDs and its signatures are detached JWS over stored bytes, while ActivityPub expects dereferenceable `https` object ids and authenticates deliveries with HTTP Signatures. A bridge must mint and serve `https` ids, map them to CIDs, and sign on users' behalf, which changes the trust model. AT Protocol differs further in identity, repository format, and signing. `docs/client-api/13-mastodon-shim.md` is a non-normative client-side shim that lets Mastodon clients talk to a Corundum operator; it is not a federation bridge.
 
 ---
 

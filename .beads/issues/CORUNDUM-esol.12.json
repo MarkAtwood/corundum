@@ -2,13 +2,15 @@
   "id": "CORUNDUM-esol.12",
   "title": "Correct factual claims (comparison, GDPR, CSAM)",
   "description": "02-comparison: ATProto supports did:web too; Big Graph Service = old Relay name; no com.atproto.repo.commit; labels are signed; Nostr relays don't federate (category error); SSB is P2P gossip. 13-content-retention:33 GDPR: hashes are pseudonymous personal data (Recital 26); zeroing tombstonedContentCid is ineffective; legal holds bind holder not peers (13:21); expiry stored twice. PRFAQ:77 CSAM 'legally required'. Ch 3/PRFAQ 'absent for everyone' overclaim. Ch 40 bridges 'straightforward'.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "issue_type": "bug",
   "owner": "mark@reviewcommit.com",
   "created_at": "2026-10-18T16:43:43.39726279Z",
   "created_by": "agent",
-  "updated_at": "2026-10-18T16:43:43.39726279Z",
+  "updated_at": "2026-10-18T17:11:48.03258975Z",
+  "closed_at": "2026-10-18T17:11:48.03258975Z",
+  "close_reason": "02-comparison, 13-content-retention, 14-out-of-scope corrected (ATProto, Nostr, SSB, GDPR pseudonymity, legal holds, expiry, bridges). PRFAQ items handled in esol.3; 04 items in esol.5.",
   "dependencies": [
     {
       "issue_id": "CORUNDUM-esol.12",
