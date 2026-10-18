@@ -2,13 +2,15 @@
   "id": "CORUNDUM-esol.8",
   "title": "Blocks: disclosure decision; drop Bloom/Merkle",
   "description": "08-social-graph. NEEDS DECISION: does a blocked user learn of the block? Spec says never (08:9) but blocked-user code, blockedIdentity, BlockNotification disclose it. Bloom filter adds nothing over local lookup and leaks when shared (enumerable identities); Merkle non-membership proof leaks neighbors. Recommend removing both. Also follow-list privacy interaction with followers-only replies (agora C6) - NEEDS DECISION.",
+  "design": "DECIDED (Mark 2026-10-18): (1) Blocks honestly visible to blocked user's operator; keep blocked-user code; remove 'never learns' promise (08:9); operators MAY hide in UI. (2) Block lists MUST be portable without old-operator cooperation: stored in RootManifest, ENCRYPTED (currently plaintext on public IPFS, contradicting 'private by default'). Content key wrapped to current operator and to user's DID recovery key; cooperative migration = old operator rewraps; hostile = user unwraps with recovery key once and rewraps. (3) Drop Bloom filter + Merkle proofs (parent operator holds list, does local lookup; they gave neither privacy nor portability). Follow-list privacy: pending, can reuse same encrypted-list mechanism.",
+  "notes": "Follow lists DECIDED (Mark 2026-10-18): private by default (encrypted in RootManifest, same wrapped-key mechanism as block lists, portable); user may publish all or part. Following ALWAYS sends FollowNotification to followee's operator (keeps followers-only/mutuals replies working). Agora's 'optional notification' rejected. Friend-of-friend discovery accepted loss for unpublished lists.",
   "status": "open",
   "priority": 1,
   "issue_type": "bug",
   "owner": "mark@reviewcommit.com",
   "created_at": "2026-10-18T16:43:43.190311547Z",
   "created_by": "agent",
-  "updated_at": "2026-10-18T16:43:43.190311547Z",
+  "updated_at": "2026-10-18T16:52:22.348974135Z",
   "dependencies": [
     {
       "issue_id": "CORUNDUM-esol.8",

@@ -37,7 +37,7 @@ When implementing a specific component, read:
 - **Reply protocol**: `07-reply-protocol.md`
 - **Follows / blocks / social graph**: `08-social-graph.md`
 - **Curation feeds / content moderation**: `09-curation.md`
-- **Canonical JSON / signing / cryptographic agility**: `10-crypto.md`
+- **Signed bytes / JWS signing / cryptographic agility**: `10-crypto.md`
 - **Event streams (WebSocket/SSE)**: `11-event-streams.md`
 - **Error handling / pagination**: `12-error-pagination.md`
 - **GDPR / content retention / deletion**: `13-content-retention.md`

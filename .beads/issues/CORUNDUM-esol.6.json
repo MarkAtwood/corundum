@@ -2,13 +2,14 @@
   "id": "CORUNDUM-esol.6",
   "title": "Sign tombstones/edits; revalidate edited replies",
   "description": "Tombstone and EditRecord are unsigned (04:256-264), yet 16-interop-streams:171 makes receivers MUST remove references and 16:168 calls tombstones signed: any operator can censor another's users. Edit step 3 never updates signingRecord. 16:143 swaps edited reply CID without re-running validation: moderation bypass. Fix: author-signed tombstone/EditRecord, new SigningRecord on edit, edits re-run reply validation.",
+  "notes": "Largely resolved by esol.5 decision: edits and tombstones become ordinary signed timeline entries. Remaining: receivers must re-run reply validation on replaces: entries; verify tombstone author signature before acting.",
   "status": "open",
   "priority": 0,
   "issue_type": "bug",
   "owner": "mark@reviewcommit.com",
   "created_at": "2026-10-18T16:43:43.078051954Z",
   "created_by": "agent",
-  "updated_at": "2026-10-18T16:43:43.078051954Z",
+  "updated_at": "2026-10-18T16:49:07.047292294Z",
   "dependencies": [
     {
       "issue_id": "CORUNDUM-esol.6",

@@ -35,11 +35,14 @@ The protocol builds on:
 - **W3C DIDs**: Decentralized Identifiers
 - **W3C ActivityStreams 2.0**: Social activity data model
 - **RFC 8032**: Ed25519 signatures
-- **RFC 8785**: JSON Canonicalization Scheme
+- **RFC 7493**: I-JSON
+- **RFC 7515**: JSON Web Signature
+- **RFC 7797**: JWS Unencoded Payload Option
+- **RFC 9864**: Fully-specified JOSE algorithms (`Ed25519`)
 - **RFC 9421**: HTTP Message Signatures
 - **RFC 3339**: Timestamps
 - **FIPS 180-4**: SHA-256
-- **FIPS 204/205/206**: Post-quantum algorithms (Dilithium, SPHINCS+, FALCON)
+- **FIPS 204**: ML-DSA (provisional, Chapter 36)
 - **RFC 8949**: CBOR
 - **RFC 9457**: Problem Details for HTTP APIs
 

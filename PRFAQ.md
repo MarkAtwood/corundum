@@ -126,9 +126,9 @@ Corundum does not claim to make IPFS GDPR-proof. It provides the mechanisms (tom
 
 A: The protocol's requirements map well to Rust's strengths:
 
-- **Correctness is non-negotiable**: A signature verification failure means interoperability breaks. Canonical JSON serialization with NFKC normalization has multiple failure modes that are easy to get subtly wrong. Rust's type system makes many of these errors compile-time failures.
+- **Correctness is non-negotiable**: A signature verification failure means interoperability breaks. Byte-exact signing, CID computation, and the strict Ed25519 verification profile have failure modes that are easy to get subtly wrong. Rust's type system makes many of these errors compile-time failures.
 - **Cryptographic code**: `ed25519-dalek` is a well-audited, timing-resistant Ed25519 implementation. Using it in Rust gives us the full benefits without an FFI boundary.
-- **Performance**: A Corundum operator is I/O-bound (IPFS fetches, database queries, network), but the hot path (canonical JSON serialization, signature verification for incoming reply submissions) benefits from fast execution.
+- **Performance**: A Corundum operator is I/O-bound (IPFS fetches, database queries, network), but the hot path (CID hashing, signature verification for incoming reply submissions) benefits from fast execution.
 - **Async ecosystem**: `tokio` + `axum` + `reqwest` is a mature, well-understood async stack for HTTP servers and clients.
 - **Deployment**: A single statically-linked binary with minimal runtime dependencies is easy to deploy.
 
@@ -138,9 +138,9 @@ A: The protocol's requirements map well to Rust's strengths:
 
 A: The MVP scope covers the minimum needed to run a conforming operator:
 
-- Canonical JSON serialization with NFKC normalization and full test vector suite
+- Detached JWS signing and verification over stored bytes, with a full test vector suite
 - Ed25519 key generation, signing, and verification
-- CID computation (SHA-256 + dag-json codec, using the `cid` and `multihash` crates)
+- CID computation (SHA-256 + raw codec, using the `cid` and `multihash` crates)
 - Kubo HTTP API client (add/get/pin/unpin, IPNS publish/resolve)
 - RootManifest creation, signing, and IPFS publication
 - Timeline management: entries, chunks, epoch finalization, ArchiveIndex
@@ -226,4 +226,4 @@ A: [TBD — to be determined before first release.]
 
 A: Read the spec. Start with [`docs/corundum-book.md`](docs/corundum-book.md) for orientation, then whichever part covers what you want to build or understand. File issues. Send PRs. The implementation roadmap is tracked in the project's issue tracker.
 
-The most valuable contributions right now are the unglamorous ones: canonical JSON serialization test vectors, CID computation verification against known-good implementations, and HTTP Message Signature conformance testing. The cryptographic underpinnings must be correct before anything else matters.
+The most valuable contributions right now are the unglamorous ones: JWS signing test vectors, CID computation verification against known-good implementations, and HTTP Message Signature conformance testing. The cryptographic underpinnings must be correct before anything else matters.

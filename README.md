@@ -43,7 +43,7 @@ docs/
     07-reply-protocol.md        Part VII — Reply submission, validation, block enforcement
     08-social-graph.md          Part VIII — Follows, blocks, Bloom filters
     09-curation.md              Part IX — Curation feeds, hash types, authority declarations
-    10-crypto.md                Part X  — Canonical JSON, Ed25519, cryptographic agility
+    10-crypto.md                Part X  — Signed bytes, JWS/Ed25519, cryptographic agility
     11-event-streams.md         Part XI — WebSocket/SSE real-time events
     12-error-pagination.md      Part XII — Error envelopes, cursor pagination
     13-content-retention.md     Part XIII — GDPR, tombstones, legal holds
@@ -60,7 +60,7 @@ The Rust implementation will live in `src/` once started.
 
 **Identity**: A user is an Ed25519 keypair. Their IPNS name (hash of the public key) is their operational identifier. A W3C DID document provides key rotation and recovery on top of that. A human-readable handle (`@alice.example`) resolves bidirectionally to the DID.
 
-**Content**: Posts are ActivityStreams 2.0 objects stored unsigned in IPFS, addressed by the CID of their canonical form. A separate `SigningRecord` object establishes authorship. The user's timeline is a two-level Merkle archive (epochs → ArchiveIndex) with O(1) lookup by sequence number.
+**Content**: Posts are ActivityStreams 2.0 objects stored unsigned in IPFS, addressed by the CID of their exact stored bytes. A separate `SigningRecord` object establishes authorship. The user's timeline is a two-level Merkle archive (epochs → ArchiveIndex) with O(1) lookup by sequence number.
 
 **Operators**: Any HTTPS server that publishes an Operator Manifest at `/.well-known/corundum-operator`, runs an IPFS node, and speaks the protocol. No registration, no prior relationship needed. Operators authenticate to each other via HTTP Message Signatures (RFC 9421).
 
@@ -102,12 +102,11 @@ The reference implementation will be written in Rust. This repository will conta
 | HTTP server | `axum` |
 | HTTP client (Kubo API) | `reqwest` |
 | SQLite | `rusqlite` |
-| Unicode normalization (NFKC) | `unicode-normalization` |
 
 **IPFS**: Kubo (go-ipfs) via its localhost HTTP API. No full IPLD framework dependency — just a thin `reqwest`-based wrapper around the Kubo API endpoints.
 
 **MVP scope** (first working operator):
-- Canonical JSON serialization with NFKC normalization and test vectors
+- Detached JWS signing over stored bytes (RFC 7515, RFC 7797) with test vectors
 - Ed25519 key generation, signing, verification
 - IPFS object add/get/pin via Kubo HTTP API
 - IPNS publish/resolve
@@ -135,7 +134,10 @@ This shows up directly in scope decisions: client/server APIs are unspecified by
 
 ## Normative References
 
-- RFC 8785 — JSON Canonicalization Scheme
+- RFC 7493 — I-JSON
+- RFC 7515 — JSON Web Signature
+- RFC 7797 — JWS Unencoded Payload Option
+- RFC 9864 — Fully-Specified Algorithms for JOSE (`Ed25519`)
 - RFC 9421 — HTTP Message Signatures
 - RFC 8032 — Ed25519
 - FIPS 180-4 — SHA-256

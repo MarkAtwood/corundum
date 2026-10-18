@@ -23,7 +23,8 @@ At the top is the **RootManifest**, the mutable entry point for a user's entire 
 - Timeline pointer (latest entry sequence number, total count, current chunk CID, archive root CID)
 - Social graph pointer (CID of following list, block list, mute list)
 - Migration audit trail (CID of append-only migration history)
-- Signature (Ed25519 signature over the rest of the manifest in Canonical JSON)
+
+The RootManifest is stored as an attached JWS (Chapter 34) with `corundumType` `"RootManifest"`, signed by every content-signing key the user's DID document currently lists.
 
 Below the RootManifest is the **timeline**, organized in two tiers:
 
@@ -127,7 +128,7 @@ An example reply with a content warning:
 
 `sensitive` is a boolean content warning flag. `true` means the author has flagged this content as potentially sensitive. Client apps use this to decide whether to show the content behind a click-through warning. The `summary` field (if present) provides the content warning text: a brief description of what the sensitive content is, shown to the user before they click through. If `sensitive` is `false` or absent, `summary` is used as a subtitle or excerpt (standard ActivityStreams semantics).
 
-`inReplyTo` is the `id` CID of the activity being replied to. Its presence is what triggers the reply protocol: when an operator processes a new activity with `inReplyTo` set, it must route the activity through the inter-operator reply submission process to the parent post's author's operator. The value is the parent activity's `id` field — the CID of the unsigned form — not the IPFS storage CID.
+`inReplyTo` is the identifier of the activity being replied to. Its presence is what triggers the reply protocol: when an operator processes a new activity with `inReplyTo` set, it must route the activity through the inter-operator reply submission process to the parent post's author's operator.
 
 `tag` contains hashtags (type `Hashtag`), mentions (type `Mention`), and emoji reactions. Hashtags are used for feed discovery; mentions notify the mentioned user's operator. Mentions carry the IPNS identity of the mentioned user alongside the display handle, so the operator can route the mention notification without a separate identity lookup:
 
@@ -155,7 +156,7 @@ An example reply with a content warning:
 }
 ```
 
-The `object` field is the `id` CID of the boosted activity. The Boost is its own signed activity in Bob's timeline; Alice's original post is referenced by CID, not embedded. This means boosting the same post twice creates two Boost activities with the same `object` — the operator can detect and deduplicate these.
+The `object` field is the identifier of the boosted activity. The Boost is its own signed activity in Bob's timeline; Alice's original post is referenced by CID, not embedded. This means boosting the same post twice creates two Boost activities with the same `object` — the operator can detect and deduplicate these.
 
 When Bob's operator processes a Boost, it notifies Alice's operator (via a lightweight notification, not through the reply protocol — Boosts are not replies). Alice's operator records that Bob boosted her post; Alice's app might show a "Bob boosted this" indicator.
 
@@ -186,23 +187,15 @@ Custom emoji reactions use the `EmojiReact` type from the Corundum namespace ext
 
 Reactions (Like, EmojiReact, Bookmark) are stored in the reacting user's own timeline. The ATD for the target post declares which reaction types are supported; operators that support the same reaction vocabulary display aggregate reaction counts by fetching from their users' timelines and the timelines of followed users. The operator notifies the target activity's author's operator when a reaction is published, so the author can see it in their notifications.
 
-The `id` field is conspicuously absent. This is the unsigned form — it does not yet have an `id`. The `id` is computed as follows:
+Activities have no `id` field. An activity's identifier is the CID of its stored bytes (Chapter 33): a CIDv1 with the `raw` codec and a SHA-256 multihash. It is the same value as the activity's IPFS storage CID. All cross-references, such as `inReplyTo` and `object`, use it. The activity is stored exactly as its author wrote it and is never re-serialized, so the identifier never changes.
 
-1. Take the unsigned object (exactly as shown above — no `id` field).
-2. Serialize to Canonical JSON (keys sorted, no whitespace, NFKC-normalized strings, see Chapter 33).
-3. Compute SHA-256 of the resulting bytes.
-4. Encode the hash as a CIDv1 with the `dag-json` codec prefix.
-5. Insert this CIDv1 as the `id` field.
+**Unsigned storage** is perhaps the most counterintuitive design decision in Corundum. Why store posts without signatures? Two reasons:
 
-The resulting object, with `id` added, is what gets stored in IPFS. Note that the object's storage CID (the CID IPFS assigns when you add it to the store) will differ from the `id` field — the storage CID is the hash of the entire object including the `id` field, while the `id` field is the hash of the object without the `id` field. This is intentional: the `id` is a stable content identity for the *content*, independent of the storage wrapper. All cross-references use the `id` value.
+First, raw IPFS fetchability. Anyone can fetch an activity directly from IPFS by its identifier, without going through any operator API, and verify it by hashing the bytes received.
 
-**Unsigned storage** is perhaps the most counterintuitive design decision in Corundum. Why store posts without signatures? Three reasons:
+Second, re-signing without changing identity. A signature inside the activity would be part of its bytes, so adding a signature (for example, a post-quantum one) would change the identifier and break every reference to the post. Keeping signatures outside lets them be added without changing the activity.
 
-First, raw IPFS fetchability. Because the object has no signature field, anyone can fetch it directly from IPFS by CID, without going through any operator API. The content is verifiable by CID alone.
-
-Second, stable content identity across signers. The same content posted by different users, or re-signed after a key rotation, produces the same `id`. Curation entries that match on `id` match regardless of which operator signed the content or when.
-
-Third, curation benefit. A curator can flag a piece of content by its `id` before it's even been posted, or flag it from one instance and have the flag apply everywhere the same content appears. The hash is derived from the content alone, not from the signature, so it is a property of the content itself.
+An identifier names one post, not a piece of text: the same words posted by two users are two activities with different identifiers. Curation that needs to match the same text or media wherever it appears uses the content hash types of Chapter 28.
 
 Authorship is established separately, by the signing record described in the next chapter.
 
@@ -210,32 +203,34 @@ Authorship is established separately, by the signing record described in the nex
 
 Since activities are stored unsigned, how does a reader know who created a post? The answer is a separate **SigningRecord** object, stored in IPFS alongside the activity and referenced from the Entry.
 
-A SigningRecord contains:
+A SigningRecord is a detached JWS (Chapter 34) over the activity's stored bytes, in the General JSON Serialization:
 
 ```json
 {
-  "@type": "corundum:SigningRecord",
-  "content": "bafyreib2vekw73m2esv7m3n7ldvikfojqxj3u5ufwtfpwjw6uktrnxlcbq",
-  "signer": "ipns://k51qzi5uqu5dj4nl2xvwya5k4y6a4xy9jh0jrh5e5c5w0n9i7r3i4j8fmq4gh",
-  "algorithm": "ed25519-v1",
-  "signature": "3ukmTKh+5oE...base64...",
-  "ts": "2025-03-15T14:22:11Z"
+  "signatures": [
+    {
+      "protected": "<base64url of the protected header>",
+      "signature": "<base64url of the Ed25519 signature>"
+    }
+  ]
 }
 ```
 
-The `content` field is the `id` value of the activity (the CID of the id-less form). The `signer` field is the IPNS name of the signing identity. The `signature` field is a base64-encoded Ed25519 signature over the Canonical JSON bytes of the unsigned activity (with the `id` field included).
+The protected header, before base64url encoding, looks like this:
 
-Why are signatures detached from activities rather than embedded? Two reasons, and they're both about a circular dependency.
+```json
+{"alg":"Ed25519","b64":false,"crit":["b64","corundumType"],"corundumType":"Activity","kid":"<IPNS name of the signing key>"}
+```
 
-The first is the CID dependency problem. An activity's `id` is the hash of the activity without an `id` field. If you included a signature field in the activity, the `id` would need to be the hash of the activity without the `id` field but including the signature field. But the signature signs the content, which would need to include the `id` — but the `id` depends on the content... The only way to break this cycle cleanly is to separate the signature from the content. The activity's `id` is stable (derived from the content alone); the signing record holds the signature separately.
+There is no `payload` member: the payload is the activity itself, which the verifier fetches by identifier or already holds. A SigningRecord does not name the activity it signs; it verifies against the activity's bytes or it does not verify at all. Chapter 34 defines the header parameters, the verification procedure, and which keys are authorized to sign.
 
-The second is the resignature problem. If signatures were embedded in activities, re-signing for cryptographic agility (adding a post-quantum signature alongside an existing Ed25519 signature) would change the object, which would change its CID, which would break every reference to that object in the archive. By keeping signatures in a separate SigningRecord, the activity object remains immutable even as the signing record is updated.
+The signature is detached because the activity's identifier is the hash of its bytes. A signature inside the activity would be part of those bytes, so adding a signature would change the identifier. With detached signatures, the activity never changes.
 
-The signing procedure is: take the unsigned activity with `id` included, serialize to Canonical JSON, sign the resulting bytes. The signature covers the `id` field, which binds the signature to the specific content and prevents content-substitution attacks.
+**Resignatures.** Re-signing an activity, for example to add a post-quantum signature, produces a new SigningRecord containing all of the activity's signatures. The activity and its identifier are unchanged. The Entry in the archive keeps the CID of the original SigningRecord, because the archive tree never changes once written. The new SigningRecord is published outside the archive tree, alongside the activity's other changing state (Chapter 10). Re-signing is never required to keep old content verifiable, because archived content is authenticated by inclusion in the current RootManifest (Chapter 34).
 
-**Reply submissions** include the signing record inline (not by CID) to allow the receiving operator to verify authorship without an additional IPFS fetch. This is a performance optimization for the reply path: the receiving operator needs to verify authorship as part of reply validation, and requiring an IPFS fetch for every reply submission would add latency to a time-sensitive operation.
+**Reply submissions** include the signing record inline (not by CID), so the receiving operator does not need a separate IPFS fetch for it during reply validation.
 
-**Out-of-band verification**: fetch the unsigned activity by its `id` CID (directly from IPFS), fetch the signing record by its CID from the entry's `signingRecord` field, verify the signature. Both objects are raw-IPFS-fetchable; no operator API is required.
+**Out-of-band verification**: fetch the activity from IPFS by its identifier, fetch the signing record by the CID in the entry's `signingRecord` field, and verify the signature. Both objects can be fetched directly from IPFS; no operator API is required.
 
 ### Chapter 13: Deletion and Editing
 
