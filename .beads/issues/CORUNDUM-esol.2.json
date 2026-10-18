@@ -2,14 +2,14 @@
   "id": "CORUNDUM-esol.2",
   "title": "Fix duplicate Chapter 36 and doc index",
   "description": "10-crypto.md and 11-event-streams.md both start Chapter 36; renumber 11 onward. README and corundum-book.md omit 16-interop-streams.md. Add a BCP 14 (RFC 2119/8174) conventions statement to the preface.",
-  "notes": "From esol.5: appendices.md:9 old spec index mentions tombstones and migration audit trail (both gone).\nFrom esol.8: appendices.md:13 old spec index mentions Bloom filters.",
+  "notes": "From esol.5: appendices.md:9 old spec index mentions tombstones and migration audit trail (both gone).\nFrom esol.8: appendices.md:13 old spec index mentions Bloom filters.\nFrom esol.9: corundum-book.md:21,41 still link 11-event-streams.md (deleted; client stream now docs/client-api/14-event-stream.md). Chapter numbering after removal of Ch 36 (events): Part XI gone.",
   "status": "open",
   "priority": 2,
   "issue_type": "bug",
   "owner": "mark@reviewcommit.com",
   "created_at": "2026-10-18T16:43:42.873717889Z",
   "created_by": "agent",
-  "updated_at": "2026-10-18T17:20:44.725712876Z",
+  "updated_at": "2026-10-18T17:23:15.898919218Z",
   "dependencies": [
     {
       "issue_id": "CORUNDUM-esol.2",

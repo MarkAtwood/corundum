@@ -1,0 +1,22 @@
+{
+  "id": "CORUNDUM-esol.19",
+  "title": "Specify post.published audience for non-public posts",
+  "description": "16-interop-streams Ch 49 does not say whether post.published is emitted for followers-only/limited posts or to whom. Corundum is public-conversation scoped (Ch 40), but reply policies (followers-only) exist. Decide: stream carries only public posts, or define audience filtering.",
+  "status": "open",
+  "priority": 2,
+  "issue_type": "task",
+  "owner": "mark@reviewcommit.com",
+  "created_at": "2026-10-18T17:23:19.346168575Z",
+  "created_by": "agent",
+  "updated_at": "2026-10-18T17:23:19.346168575Z",
+  "dependencies": [
+    {
+      "issue_id": "CORUNDUM-esol.19",
+      "depends_on_id": "CORUNDUM-esol",
+      "type": "parent-child",
+      "created_at": "2026-10-18T17:23:19.974974916Z",
+      "created_by": "agent",
+      "metadata": "{}"
+    }
+  ]
+}
