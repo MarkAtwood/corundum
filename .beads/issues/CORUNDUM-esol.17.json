@@ -2,13 +2,15 @@
   "id": "CORUNDUM-esol.17",
   "title": "Tell agora: C2 reversed (IPNS kept)",
   "description": "agora/profiles/corundum.md records C2 (drop IPNS, posting key signs only RootManifest) as Mark's decision. Reversed 2026-10-18 by D1/D2: IPNS key is the delegated content-signing key. Mark to relay to the agora agent; do not edit ../agora from here.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "issue_type": "task",
   "owner": "mark@reviewcommit.com",
   "created_at": "2026-10-18T16:43:43.652361601Z",
   "created_by": "agent",
-  "updated_at": "2026-10-18T16:43:43.652361601Z",
+  "updated_at": "2026-10-18T17:58:04.834436686Z",
+  "closed_at": "2026-10-18T17:58:04.834436686Z",
+  "close_reason": "Done with Mark's authorization: agora profiles/corundum.md, spec/10-relays.md, spec/99-appendices.md, notes/corundum-fit.md updated; agora beads agora-pozi.32.11 (C2r decision, supersedes .32.2/.32.9/.32.10) and .32.12 (edit record). Agora changes uncommitted pending approval.",
   "dependencies": [
     {
       "issue_id": "CORUNDUM-esol.17",
