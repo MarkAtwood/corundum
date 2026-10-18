@@ -27,18 +27,20 @@ Here is an abbreviated example of what the standard `Note` ATD looks like:
   "version": "1.0",
   "fields": {
     "required": [
-      { "name": "content", "type": "ContentRef", "modes": ["inline", "ipfs"] }
+      { "name": "content", "type": "string" }
     ],
     "optional": [
+      { "name": "attachment", "type": "array", "items": "ContentRef", "modes": ["ipfs", "chunked", "url"] },
       { "name": "summary", "type": "string", "maxLength": 500 },
       { "name": "sensitive", "type": "boolean" },
       { "name": "inReplyTo", "type": "cid" },
       { "name": "quoting", "type": "cid" },
-      { "name": "language", "type": "bcp47" }
+      { "name": "language", "type": "bcp47" },
+      { "name": "expiresAt", "type": "datetime" }
     ]
   },
   "contentConstraints": {
-    "maxInlineLength": 5000
+    "maxContentBytes": 5000
   },
   "replyTypes": ["Note"],
   "reactions": ["like", "bookmark"],
@@ -49,9 +51,9 @@ Here is an abbreviated example of what the standard `Note` ATD looks like:
 }
 ```
 
-This ATD says: a Note requires a `content` field (inline or IPFS mode), allows optional `summary`, `sensitive`, `inReplyTo`, `quoting`, and `language` fields, accepts Note replies (not Article replies), supports like and bookmark reactions, and maps to an ActivityStreams 2.0 `Note` object for non-Corundum interoperability.
+This ATD says: a Note requires a `content` string of at most 5,000 bytes of UTF-8, allows optional media `attachment`s (Chapter 15) and optional `summary`, `sensitive`, `inReplyTo`, `quoting`, `language`, and `expiresAt` fields, accepts Note replies (not Article replies), supports like and bookmark reactions, and maps to an ActivityStreams 2.0 `Note` object for non-Corundum interoperability.
 
-Anyone can publish a new ATD. If Meetup wants to define an ATD for structured event RSVPs that carries venue capacity, accessibility information, and calendar invite data, they publish an ATD document to IPFS and share its CID. Operators can discover it, fetch it, and decide whether to support it. Birdsite might decide to render Meetup's ATD natively (showing a rich event card); a minimal operator might fall back to the ActivityStreams translation mapping. Activities reference their ATD by CID, so validators can always resolve the exact schema version used.
+Anyone can publish a new ATD. If Meetup wants to define an ATD for structured event RSVPs that carries venue capacity, accessibility information, and calendar invite data, they publish an ATD document to IPFS and share its CID. Operators can discover it, fetch it, and decide whether to support it. Birdsite might decide to render Meetup's ATD natively (showing a rich event card); a minimal operator might fall back to the ActivityStreams translation mapping. An activity that follows a published ATD names it by CID in its `atd` field (Chapter 11), so validators can always resolve the exact schema version used. An activity without `atd` follows the standard ATD for its `@type`. Every activity, whatever its ATD, is limited to 1,048,576 bytes (Chapter 33); larger content goes in attachments.
 
 This extensibility mechanism is what allows the Corundum ecosystem to innovate in content types without requiring protocol changes. New types are additive; they don't break existing implementations that don't support them.
 
@@ -59,7 +61,7 @@ This extensibility mechanism is what allows the Corundum ecosystem to innovate i
 
 Every activity references its content through a `ContentRef` object that specifies a delivery mode. The most important thing to understand about this design is why content is not simply embedded in the activity JSON by default.
 
-Activities are CID-addressed: the CID of an activity is the hash of its bytes. If the content were inline, the activity's CID would change every time the content changed — but in Corundum, activities are immutable once published. More practically, embedding a 4 MB image as a base64 blob in a JSON activity makes the activity's CID useless as a cache key, blows up JSON parsing in relay pipelines, and means that two different activities referencing the same image (say, two people boosting the same photo) each carry a separate copy instead of sharing one. Separating content reference from content data lets the activity remain small, stable, and CID-stable, while the content itself is stored and deduplicated by whatever storage system is most appropriate for its type and size.
+Activities are CID-addressed: the identifier of an activity is the hash of its bytes, and an activity is at most 1 MiB (Chapter 33). Embedding a 4 MB image as a base64 blob in a JSON activity makes the activity's CID useless as a cache key, blows up JSON parsing in relay pipelines, and means that two different activities referencing the same image (say, two people boosting the same photo) each carry a separate copy instead of sharing one. Separating content reference from content data lets the activity remain small, stable, and CID-stable, while the content itself is stored and deduplicated by whatever storage system is most appropriate for its type and size.
 
 The `ContentRef` system defines five modes:
 
@@ -75,10 +77,12 @@ The `ContentRef` system defines five modes:
 
 **IPFS**: Content referenced by CID. The CID is the address of the content on the IPFS network; any IPFS node that has pinned the content can serve it to any other. This is the preferred mode for images, documents, and anything that should be available permanently and independently of the original server. Critically, for IPFS content, the CID IS the integrity check — there is no separate hash field because the CID is a hash of the content by definition. If the bytes you fetch don't hash to the CID, your IPFS library will tell you before you ever see them.
 
+A file referenced in `ipfs` mode is stored as a UnixFS file DAG built with fixed parameters, so that anyone who has the file computes the same CID: CIDv1, SHA-256, raw leaves, a fixed-size chunker of 1,048,576 bytes, and the balanced layout with at most 174 links per node. (In Kubo these are `ipfs add --cid-version=1 --raw-leaves --chunker=size-1048576`.) Operators MUST verify an uploaded file's CID with these parameters before accepting it.
+
 ```json
 {
   "mode": "ipfs",
-  "cid": "bafyreib2vekw73m2esv7m3n7ldvikfojqxj3u5ufwtfpwjw6uktrnxlcbq",
+  "cid": "<CID of the file>",
   "mediaType": "image/jpeg",
   "size": 2481920
 }
@@ -106,12 +110,12 @@ The `ContentRef` system defines five modes:
 }
 ```
 
-**Chunked**: Large files split into segments described by a MediaManifest. The `manifest` field holds the CID of a `corundum:MediaManifest` object (described in Chapter 16) that lists every chunk of the file. This is the mode for video files, long audio recordings, and any content that is too large to store as a single IPFS object or that requires range-access for streaming playback.
+**Chunked**: Large files split into segments described by a MediaManifest. The `manifest` field holds the CID of a `corundum:MediaManifest` object (described in Chapter 16) that lists every chunk of the file. This is the mode for video files, long audio recordings, and other media that needs seeking or adaptive bitrate playback.
 
 ```json
 {
   "mode": "chunked",
-  "manifest": "bafyreic3d2vekw73m2esv7m3n7ldvikfojqxj3u5ufwtfpwjw6uktrnxlcbq",
+  "manifest": "<CID of the MediaManifest>",
   "mediaType": "video/mp4",
   "size": 847362048
 }
@@ -121,61 +125,52 @@ The mode system is extensible via URI-based identifiers. A new storage backend �
 
 ### Chapter 16: Chunked Media
 
-IPFS works best with objects under a few hundred megabytes — objects that fit comfortably in memory and can be retrieved as a unit. A 45-minute 1080p video is 3–4 GB. A feature film at broadcast quality is larger still. These do not fit in a single IPFS object in any practical sense, and even if they did, streaming playback would still require fetching the entire file before the viewer could start watching. Range access — seeking to minute 32 without downloading the first 31 minutes — is essential for any real media experience. CDN architectures and adaptive bitrate protocols like HLS and DASH are built around the same idea: they serve small segments (2–6 seconds each), not monolithic files, because segments can be independently cached, independently delivered from the nearest edge node, and dynamically substituted when bandwidth drops. Corundum's chunked media system mirrors this architecture at the protocol level.
+IPFS already splits every large file into blocks of about 1 MiB, so size alone is not a reason to chunk media. The reasons are playback: seeking to minute 32 without downloading the first 31 minutes, and switching quality when bandwidth changes. Adaptive bitrate protocols like HLS and DASH are built around the same idea: they serve small segments (2–6 seconds each), not monolithic files, because segments can be independently cached, independently delivered from the nearest edge node, and dynamically substituted when bandwidth drops. Corundum's chunked media system mirrors this architecture at the protocol level.
 
-**The MediaManifest structure.** A `corundum:MediaManifest` is a content-addressed document that describes a complete media file in terms of its constituent chunks. Each chunk is individually stored as an IPFS object and described by a `ChunkRef` with four fields: `seq` (sequence number), `cid` (IPFS CID of the chunk's bytes), `byteRange` (inclusive start and exclusive end byte offset within the full file), and `timeRange` (start and end timestamps in seconds, for audio/video; omitted for non-temporal content). The manifest's top-level metadata includes `mimeType`, `codec` (a string in the format used by HTML5's `codecs=` attribute), `totalSize` in bytes, and `duration` in seconds for temporal media.
+**The MediaManifest structure.** A `corundum:MediaManifest` describes one encoding of a media file as a sequence of segments. Its identifier is its CID (Chapter 33); it has no `id` field. Each segment is stored as its own file, with the same fixed UnixFS parameters as `ipfs` mode (Chapter 15), and is described by a `ChunkRef`:
 
-**Quality variants.** A single `MediaManifest` can declare multiple quality variants via a top-level `variants` array. Each variant entry carries a human-readable `label` (e.g., `"1080p"`), a `bitrate` in bits per second, and a `manifest` CID pointing to another `MediaManifest` for that quality level. The client chooses a variant based on current bandwidth, screen resolution, or user preference, then fetches chunks from that variant's manifest. Where possible — for keyframe-aligned segmentation — lower-quality variants share chunk CIDs with higher-quality ones for segments that encode identically; this reduces storage and simplifies curation (flagging the manifest flags all variants simultaneously).
+| Member | Meaning |
+|---|---|
+| `seq` | Segment number, starting at 0. |
+| `cid` | CID of the segment's bytes. |
+| `timeRange` | Start and end time in seconds, for audio and video. |
+| `byteRange` | Optional. Start offset (inclusive) and end offset (exclusive) of the segment within the original file, when the segments are byte ranges of one file. |
 
-**Streaming access pattern.** The client fetches the `MediaManifest` (one small JSON document), selects a variant, and then requests chunks by CID in sequence number order. Because chunks are individually CID-addressed, they can be served from any source that has them: the operator's IPFS node, a CDN with IPFS pinning, a dedicated media delivery server at `https://cdn.operator.example/ipfs/{cid}`, or any IPFS gateway. The client does not need to know where the chunks are stored — the CID is sufficient. It fetches chunk 0, starts playback immediately while fetching chunk 1, and so on. Seeking to a timestamp means finding the `ChunkRef` whose `timeRange` contains the target time, then fetching from that chunk forward. No special server-side range-request support is needed; it's just fetching a different set of chunks.
+The manifest's top-level metadata includes `mimeType`, `codec` (a string in the format used by HTML5's `codecs=` attribute), `totalSize` in bytes, and `duration` in seconds for temporal media.
 
-**Upload protocol.** The upload flow is designed so that connection interruptions don't require starting over. The client begins by POSTing to `/upload` to create a session, receiving a session ID in response. It then PUTs chunks identified by sequence number (`/upload/{sessionId}/chunks/{seq}`), in any order — there is no requirement to upload sequentially, so parallel connections are encouraged. The operator verifies each chunk's hash before acknowledging it; a chunk whose bytes don't match the expected CID is rejected immediately, so errors are caught at upload time rather than playback time. Once all chunks are uploaded, the client POSTs to `/upload/{sessionId}/finalize` with the complete chunk list (sequence numbers, CIDs, byte ranges, time ranges) and top-level metadata. The operator creates the `MediaManifest` document, pins it to IPFS, and returns the `MediaManifest` CID. That CID goes into the activity's `ContentRef` with `mode: "chunked"`.
+**Quality variants.** Different encodings of the same media never share segments, because two encodings are never byte-identical. A **MediaVariants** object (`corundum:MediaVariants`) lists the encodings, each with a human-readable `label` (e.g., `"1080p"`), a `bitrate` in bits per second, and the CID of that encoding's MediaManifest. An activity's `chunked` ContentRef names either a single MediaManifest or a MediaVariants object. The client chooses a variant based on current bandwidth, screen resolution, or user preference, then fetches segments from that variant's manifest. Curation applies to each encoding separately, because each has different bytes.
 
-Here is a concrete `MediaManifest` example:
+**Streaming access pattern.** The client fetches the manifest (one small JSON document), and then requests segments by CID in sequence order. Because segments are individually CID-addressed, they can be served from any source that has them: the operator's IPFS node, a CDN with IPFS pinning, a dedicated media delivery server at `https://cdn.operator.example/ipfs/{cid}`, or any IPFS gateway. The client does not need to know where the segments are stored — the CID is sufficient. It fetches segment 0, starts playback immediately while fetching segment 1, and so on. Seeking to a timestamp means finding the `ChunkRef` whose `timeRange` contains the target time, then fetching from that segment forward. No special server-side range-request support is needed; it's just fetching a different set of segments.
+
+**Uploading** is between a client and its own operator, so it is not part of the protocol. `docs/client-api/08-media.md` describes a resumable upload API for the reference implementation. Whatever the upload API, the operator verifies every segment's CID before accepting it.
+
+Here is a `MediaVariants` object and one of the MediaManifests it names:
+
+```json
+{
+  "@type": "corundum:MediaVariants",
+  "variants": [
+    { "label": "1080p", "bitrate": 8000000, "manifest": "<CID of the 1080p MediaManifest>" },
+    { "label": "720p", "bitrate": 4000000, "manifest": "<CID of the 720p MediaManifest>" }
+  ]
+}
+```
 
 ```json
 {
   "@type": "corundum:MediaManifest",
-  "id": "bafyreic3d2vekw73m2esv7m3n7ldvikfojqxj3u5ufwtfpwjw6uktrnxlcbq",
   "mimeType": "video/mp4",
   "codec": "avc1.64001F,mp4a.40.2",
   "totalSize": 847362048,
   "duration": 3612.4,
   "chunks": [
-    {
-      "seq": 0,
-      "cid": "bafyreiexamplechunk0ccccccccccccccccccccccccccccccccccccccccc",
-      "byteRange": [0, 4194303],
-      "timeRange": [0.0, 4.0]
-    },
-    {
-      "seq": 1,
-      "cid": "bafyreiexamplechunk1ccccccccccccccccccccccccccccccccccccccccc",
-      "byteRange": [4194304, 8388607],
-      "timeRange": [4.0, 8.0]
-    }
-  ],
-  "variants": [
-    {
-      "label": "1080p",
-      "bitrate": 8000000,
-      "manifest": "bafyreic3d2vekw73m2esv7m3n7ldvikfojqxj3u5ufwtfpwjw6uktrnxlcbq"
-    },
-    {
-      "label": "720p",
-      "bitrate": 4000000,
-      "manifest": "bafyreiabc720pmanifestccccccccccccccccccccccccccccccccccccccc"
-    },
-    {
-      "label": "480p",
-      "bitrate": 2000000,
-      "manifest": "bafyreidef480pmanifestccccccccccccccccccccccccccccccccccccccc"
-    }
+    { "seq": 0, "cid": "<CID of segment 0>", "timeRange": [0.0, 4.0] },
+    { "seq": 1, "cid": "<CID of segment 1>", "timeRange": [4.0, 8.0] }
   ]
 }
 ```
 
-The upload protocol also supports operator-side transcoding: the client uploads the source file in a single quality (or even raw uncompressed), and the operator's transcoding pipeline generates the lower-quality variants, creating a `MediaManifest` with a populated `variants` array. This is optional — clients that pre-encode their own variants can supply the complete chunk lists at finalization — but it simplifies the client's job for the common case of a single upload.
+A MediaManifest is limited to 1 MiB like every other Corundum object, which allows several thousand segments. Media long enough to need more uses longer segments.
 
 ---
 

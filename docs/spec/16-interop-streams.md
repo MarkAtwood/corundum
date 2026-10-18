@@ -126,49 +126,53 @@ A user edited an existing post. The original CID is immutable; an edit produces 
   "sequence": 48294,
   "timestamp": "2025-03-15T12:35:10Z",
   "operator": "https://wobble.example",
-  "author_ipns": "k51qzi5...",
-  "new_activity_cid": "bafyreinewedit...",
-  "predecessor_cid": "bafyreiemxf5...",
-  "signing_record_cid": "bafyreinewsig..."
+  "author": "did:webvh:<SCID>:wobble.example:users:bob",
+  "activity": "<identifier of the new version>",
+  "replaces": "<identifier of the version it replaces>",
+  "signing_record_cid": "<CID of the new version's SigningRecord>"
 }
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `author_ipns` | string | REQUIRED | IPNS name of the author. |
-| `new_activity_cid` | string | REQUIRED | CID of the new (edited) activity. |
-| `predecessor_cid` | string | REQUIRED | CID of the activity this edit replaces. |
-| `signing_record_cid` | string | REQUIRED | CID of the signing record for the new activity. |
+| `author` | string | REQUIRED | DID of the author. |
+| `activity` | string | REQUIRED | Identifier of the new version. |
+| `replaces` | string | REQUIRED | Identifier of the version it replaces. |
+| `signing_record_cid` | string | REQUIRED | CID of the SigningRecord for the new version. |
 
-Receiving operators that have cached the predecessor CID SHOULD update their references to point to the new CID. The predecessor CID remains valid content in IPFS; it is not deleted.
+The event is a notice, not an authority. A receiver MUST fetch the new version and verify it (Chapter 34), and MUST check that its `replaces` field names the version given and that it has the same author, before using it. Every version remains valid content in IPFS; nothing is deleted.
+
+A receiver that serves a reply tree containing the replaced version MUST NOT substitute the new version in that tree. An edited reply is a new reply submission, validated from scratch by the parent post's operator (Chapter 13, Chapter 21). Outside reply trees, a receiver that displays the old version MAY show the new one instead.
 
 ---
 
-#### Event Type: `post.tombstoned`
+#### Event Type: `post.deleted`
 
-A user deleted a post. The tombstone is stored in IPFS; the underlying content is unpinned by this operator and SHOULD be unpinned by receivers (Chapter 39).
+A user deleted a post by publishing a `Delete` activity (Chapter 13). This operator has unpinned the deleted content; receivers SHOULD unpin it too (Chapter 39).
 
 ```json
 {
-  "type": "post.tombstoned",
+  "type": "post.deleted",
   "sequence": 48295,
   "timestamp": "2025-03-15T12:36:00Z",
   "operator": "https://wobble.example",
-  "author_ipns": "k51qzi5...",
-  "activity_cid": "bafyreiemxf5...",
-  "tombstone_cid": "bafyreitombstone...",
-  "reason": "user-deletion"
+  "author": "did:webvh:<SCID>:wobble.example:users:bob",
+  "activity": "<identifier of the deleted activity>",
+  "delete_activity": "<identifier of the Delete activity>",
+  "signing_record_cid": "<CID of the Delete activity's SigningRecord>"
 }
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `author_ipns` | string | REQUIRED | IPNS name of the author. |
-| `activity_cid` | string | REQUIRED | CID of the deleted activity. |
-| `tombstone_cid` | string | REQUIRED | CID of the tombstone object. Tombstone is a signed object in IPFS. |
-| `reason` | string | REQUIRED | One of `"user-deletion"`, `"gdpr-erasure"`, `"legal-hold-release"`, `"curation-enforcement"`. |
+| `author` | string | REQUIRED | DID of the author. |
+| `activity` | string | REQUIRED | Identifier of the deleted activity. |
+| `delete_activity` | string | REQUIRED | Identifier of the `Delete` activity. |
+| `signing_record_cid` | string | REQUIRED | CID of the `Delete` activity's SigningRecord. |
 
-Receiving operators MUST remove references to `activity_cid` from any reply trees or feeds they serve. For `"gdpr-erasure"` reason, operators MUST unpin `activity_cid` from their IPFS nodes (Chapter 39).
+A receiver MUST NOT act on this event until it has fetched the `Delete` activity, verified it (Chapter 34), and checked that its `object` is `activity` and its author is the author of `activity`. Once it has, it MUST stop serving the deleted activity, MUST remove it from any reply trees or feeds it serves, and SHOULD unpin it and its SigningRecords (Chapter 39).
+
+Only authors delete posts through this event. An operator that stops serving content for its own reasons (a curation judgment, its own policy, a legal order) does not send `post.deleted`, and its decision does not bind other operators.
 
 ---
 
@@ -302,7 +306,7 @@ Chapter 36 (`11-event-streams.md`) specifies real-time event streams between ope
 | Direction | Server push to client | Pull by receiver (persistent GET) |
 | Protocol | WebSocket or SSE | HTTP chunked NDJSON |
 | Auth | OAuth bearer token | RFC 9421 HTTP Message Signature |
-| Content | Timeline updates, notifications | Published posts, tombstones, key rotations, migrations |
+| Content | Timeline updates, notifications | Published posts, deletions, key rotations, migrations |
 | Retention | Ephemeral (no replay) | Durable log, sequence-resumable |
 
 A receiving operator typically maps incoming inter-operator events to its own clients' event streams: a `post.published` event from a followed user on Operator A triggers a `status.update` push to Operator B's clients who follow that user.
