@@ -95,13 +95,53 @@ Reject a failing submission with a `corundum:Error` whose `code` is `REPLY_REJEC
 
 ### Chapter 45: Test Vectors
 
-The spec will publish test vectors in these three groups. Implementations should pass all of them before claiming conformance:
+Implementations should pass all of these before claiming conformance. Every value below was computed once and checked against independent implementations: the CIDs and the IPNS name with the `multiformats` Python library and by hand from the byte layouts given here, and every signature by three Ed25519 implementations (pyca/cryptography, PyNaCl/libsodium, and OpenSSL 3.0), which produced identical bytes. Ed25519 signatures are deterministic, so any correct implementation reproduces them exactly.
 
-1. **Activity bytes and raw CIDs.** Exact activity bytes, given as hex, with the CIDv1 (`raw`, `sha2-256`) of each. Implementations must reproduce the CID from the bytes without parsing them.
-2. **Detached JWS.** SigningRecords over those activity bytes, made with a published RFC 8032 test key (for example, one from RFC 8032 §7.1). Each vector gives its protected header and the expected signature. Negative vectors carry an extra header parameter, the wrong `corundumType`, or a payload changed by one byte.
-3. **Strict-profile Ed25519 edge cases.** Taken from an external source, such as the test vectors of "Taming the many EdDSAs" (Chalkias, Garillot, Nikolaenko, 2020). These cover non-canonical `A` and `R`, small-order points, `S ≥ L`, and the cofactored/cofactorless split. Each case gives the result required by the Chapter 34 profile.
+**The test key.** All signatures use the key from RFC 8032 §7.1, TEST 1, so that anyone can reproduce them:
 
-One raw CID can be checked now. The 12 bytes `68 65 6c 6c 6f 20 77 6f 72 6c 64 0a` (ASCII `hello world` followed by a newline) have SHA-256 `a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447` and the raw CID `bafkreifjjcie6lypi6ny7amxnfftagclbuxndqonfipmb64f2km2devei4`. That CID is the multibase prefix `b` followed by the unpadded lowercase base32 of the bytes `01 55 12 20` and the digest. `printf 'hello world\n' | ipfs block put --cid-codec=raw --mhtype=sha2-256` returns the same CID.
+- Private key (seed): `0x9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60`
+- Public key: `0xd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a`
+- As a DID: `did:key:z6MktwupdmLXVVqTzCw4i46r4uGyosGXRnR3XjN4Zq7oMMsw`
+- As an IPNS name: `k51qzi5uqu5dljtg5upm7x7ugan9lql3ewyknv4r4mhhkwzn8n7cnbd1unfwgq` (62 characters). It is the multibase prefix `k` and the base36 encoding of `0x0172002408011220` followed by the public key: CIDv1, codec `libp2p-key`, an identity multihash of length 36, and the libp2p public-key encoding (`0x08 0x01` = Ed25519, `0x12 0x20` = 32 bytes).
+
+**1. Raw CID of a byte string.** The 12 bytes `0x68656c6c6f20776f726c640a` (ASCII `hello world` followed by a newline) have SHA-256 `0xa948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447` and raw CID `bafkreifjjcie6lypi6ny7amxnfftagclbuxndqonfipmb64f2km2devei4`: the multibase prefix `b` followed by the unpadded lowercase base32 of `0x01551220` and the digest.
+
+**2. An activity and its identifier.** These 245 bytes of UTF-8, with no trailing newline, are a `Note` by the test key's `did:key` user:
+
+```
+{"@context":["https://www.w3.org/ns/activitystreams","https://corundum.example/ns/v1"],"@type":"Note","attributedTo":"did:key:z6MktwupdmLXVVqTzCw4i46r4uGyosGXRnR3XjN4Zq7oMMsw","content":"Hello, world!","published":"2025-06-01T12:00:00Z","seq":0}
+```
+
+Their SHA-256 is `0x0c5f2263ab758a45868bc92d211042fdec20bf640cb4c8d6971cc0ca662510db`, and the activity's identifier is `bafkreiaml4rghk3vrjcync6jfuqraqx55qql6zamwtennfy4ydfgmjiq3m`. Implementations must reproduce the identifier from the bytes without parsing them.
+
+**3. A SigningRecord.** The protected header is these bytes:
+
+```
+{"alg":"Ed25519","b64":false,"crit":["b64","corundumType"],"corundumType":"Activity","kid":"k51qzi5uqu5dljtg5upm7x7ugan9lql3ewyknv4r4mhhkwzn8n7cnbd1unfwgq"}
+```
+
+Base64url-encoded, it is:
+
+```
+eyJhbGciOiJFZDI1NTE5IiwiYjY0IjpmYWxzZSwiY3JpdCI6WyJiNjQiLCJjb3J1bmR1bVR5cGUiXSwiY29ydW5kdW1UeXBlIjoiQWN0aXZpdHkiLCJraWQiOiJrNTFxemk1dXF1NWRsanRnNXVwbTd4N3VnYW45bHFsM2V3eWtudjRyNG1oaGt3em44bjdjbmJkMXVuZndncSJ9
+```
+
+The signing input is that string, a period, and the activity bytes of vector 2. The Ed25519 signature is `0x64465e150528571794f0f423d54e44dc8ff90a1e7795f1dd5dbadfcc0466cc5f15517c9c3f89351b9f7f23eaa81015047f5bd9ae8f1a09d955c207a60673c308`. The complete SigningRecord, as stored, is:
+
+```
+{"signatures":[{"protected":"eyJhbGciOiJFZDI1NTE5IiwiYjY0IjpmYWxzZSwiY3JpdCI6WyJiNjQiLCJjb3J1bmR1bVR5cGUiXSwiY29ydW5kdW1UeXBlIjoiQWN0aXZpdHkiLCJraWQiOiJrNTFxemk1dXF1NWRsanRnNXVwbTd4N3VnYW45bHFsM2V3eWtudjRyNG1oaGt3em44bjdjbmJkMXVuZndncSJ9","signature":"ZEZeFQUoVxeU8PQj1U5E3I_5Ch53lfHdXbrfzARmzF8VUXycP4k1G59_I-qoEBUEf1vZro8aCdlVwgemBnPDCA"}]}
+```
+
+and its CID is `bafkreiabuqsz2grtp522kkl4qemfww3rbmikfv2tb3fvycl3ezs6ozn374`. A verifier given vector 2 and this SigningRecord must accept it.
+
+**4. Signatures that must be rejected.** Each of these is a valid Ed25519 signature by the test key over the activity bytes of vector 2, made with the protected header shown. A verifier following Chapter 34 must reject every one of them.
+
+- **Wrong `corundumType` (`RootManifest` where an `Activity` is expected).** Header `{"alg":"Ed25519","b64":false,"crit":["b64","corundumType"],"corundumType":"RootManifest","kid":"k51qzi5uqu5dljtg5upm7x7ugan9lql3ewyknv4r4mhhkwzn8n7cnbd1unfwgq"}`, protected `eyJhbGciOiJFZDI1NTE5IiwiYjY0IjpmYWxzZSwiY3JpdCI6WyJiNjQiLCJjb3J1bmR1bVR5cGUiXSwiY29ydW5kdW1UeXBlIjoiUm9vdE1hbmlmZXN0Iiwia2lkIjoiazUxcXppNXVxdTVkbGp0ZzV1cG03eDd1Z2FuOWxxbDNld3lrbnY0cjRtaGhrd3puOG43Y25iZDF1bmZ3Z3EifQ`, signature `cglwLzyxlLbFfK_ff8mm9vee24aoVn0zJ7tVYfC-Me1ujw6wdwblb-0B5UcLgUAFyV3wMgWg8CFYrMduq9jcBw`.
+- **An extra header parameter (`typ`).** Header `{"alg":"Ed25519","b64":false,"crit":["b64","corundumType"],"corundumType":"Activity","kid":"k51qzi5uqu5dljtg5upm7x7ugan9lql3ewyknv4r4mhhkwzn8n7cnbd1unfwgq","typ":"JOSE"}`, protected `eyJhbGciOiJFZDI1NTE5IiwiYjY0IjpmYWxzZSwiY3JpdCI6WyJiNjQiLCJjb3J1bmR1bVR5cGUiXSwiY29ydW5kdW1UeXBlIjoiQWN0aXZpdHkiLCJraWQiOiJrNTFxemk1dXF1NWRsanRnNXVwbTd4N3VnYW45bHFsM2V3eWtudjRyNG1oaGt3em44bjdjbmJkMXVuZndncSIsInR5cCI6IkpPU0UifQ`, signature `Q7tHw2RNuKFE_QCpEmJMkS-YJliMAsASrsEuTLPVb8TH1F7eeculmB93Yihhix5lpF4RHMZPao4sb19Nkq3eCg`.
+- **The deprecated algorithm name `EdDSA` (Chapter 36).** Header `{"alg":"EdDSA","b64":false,"crit":["b64","corundumType"],"corundumType":"Activity","kid":"k51qzi5uqu5dljtg5upm7x7ugan9lql3ewyknv4r4mhhkwzn8n7cnbd1unfwgq"}`, protected `eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0IiwiY29ydW5kdW1UeXBlIl0sImNvcnVuZHVtVHlwZSI6IkFjdGl2aXR5Iiwia2lkIjoiazUxcXppNXVxdTVkbGp0ZzV1cG03eDd1Z2FuOWxxbDNld3lrbnY0cjRtaGhrd3puOG43Y25iZDF1bmZ3Z3EifQ`, signature `4Y84Mt8K82_EmChPJDNvTZQP_iyqcxkz8cqT5BnkBkhzTMgOxb6FHQJiACwiIcUkdRLgGL9VJ2GPp9tmB16fBQ`.
+- **A changed payload.** The SigningRecord of vector 3 over the activity bytes of vector 2 with the `!` in `Hello, world!` changed to `.`. The signature does not verify.
+
+**5. Strict-profile Ed25519 edge cases.** The 12 test vectors in `cases.json` of the ed25519-speccheck repository (`https://github.com/novifinancial/ed25519-speccheck`), which accompanies Chalkias, Garillot, and Nikolaenko, "Taming the many EdDSAs" (SSR 2020, IACR ePrint 2020/1244), cover non-canonical encodings of `A` and `R`, small-order points, `S ≥ L`, and the cofactored and cofactorless equations. A verifier following the Chapter 34 profile must give, for each case, the result that profile requires; implementers should run their verify function against all 12.
 
 ### Chapter 46: IPFS in Practice
 
