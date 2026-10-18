@@ -122,6 +122,24 @@ If a check cannot be completed because something the operator depends on is unav
 
 **On acceptance**, the operator MUST store and pin the activity and SigningRecord bytes exactly as received (their CIDs are computed over those bytes), add the reply to the parent's reply tree, and update the parent's slot in its ReplyMap (Chapter 10).
 
+**Deleting a reply.** When the author of an accepted reply deletes it (Chapter 13), the author's operator MUST submit the `Delete` activity to the parent's operator through the same endpoint, as a `ReplySubmission` whose `reply` is the `Delete` activity and whose `parentId` is the post the deleted reply answered. For such a submission, check 2 requires the `Delete`'s `object` to name a reply in that post's reply tree instead of requiring `inReplyTo`, and checks 9 to 11 do not apply. On acceptance, the operator removes the reply from the tree and remembers it as withdrawn (check 3).
+
+**Reply tree format.** A reply tree lists the direct replies to one post; a reply to a reply belongs to the reply tree of the post it answers, published by that post's author's operator. It is a chain of `corundum:ReplyList` pages, each at most 1 MiB (Chapter 33):
+
+```json
+{
+  "@type": "corundum:ReplyList",
+  "replies": [
+    { "id": "<identifier of the reply>", "signingRecord": "<CID of its SigningRecord>", "acceptedAt": "2025-03-15T14:30:12Z" }
+  ],
+  "next": "<CID of the next, older page, or null>"
+}
+```
+
+Replies appear newest first. The ReplyMap slot holds the CID of the first page. Adding a reply rewrites the first page, starting a new one when it is full; removing one rewrites the page that holds it and every page before it in the chain. Reply trees are not part of the author's archive, so these rewrites never touch it.
+
+**Replies to edited posts.** A post's thread is keyed by its original version. When a post has been edited, its versions form a chain through `replaces` (Chapter 13), and replies to any version are stored in the reply tree in the ReplyMap slot of the original version's `seq`. A reader holding any version finds the thread by following `replaces` back to the original.
+
 **`ReplyAcceptance` response:**
 
 HTTP status `200 OK`. `Content-Type: application/json`.
