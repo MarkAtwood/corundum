@@ -63,7 +63,8 @@ A DID document for a Corundum user declares the user's content keys, their opera
       "type": "CorundumIdentity",
       "serviceEndpoint": {
         "ipnsName": "<IPNS name of Alice's content key>",
-        "operatorEndpoint": "https://birdsite.example/corundum/v1"
+        "operatorEndpoint": "https://birdsite.example/corundum/v1",
+        "listKey": "<multibase X25519 public key>"
       }
     }
   ]
@@ -76,6 +77,7 @@ The `CorundumIdentity` service entry is what connects the DID to the Corundum co
 |---|---|---|
 | `ipnsName` | REQUIRED | The user's current IPNS name: the Ed25519 content-signing key and the pointer to the RootManifest. |
 | `operatorEndpoint` | REQUIRED | The base URL of the user's operator. |
+| `listKey` | REQUIRED | The X25519 public key, as multibase, to which the user's encrypted follow, block, and mute lists are encrypted (Chapter 25). Its private half is kept with the user's recovery material. |
 | `additionalKeys` | OPTIONAL | Further content-signing keys, each an object with `kid`, `alg` (Chapter 36), and `publicKeyMultibase`. Used to add an algorithm alongside Ed25519 (Chapter 35). |
 
 The user's **content-signing keys** are the key in `ipnsName` plus every key in `additionalKeys`. Together they form the required set: every object the user signs carries a signature from each of them (Chapter 34).
@@ -96,6 +98,8 @@ Corundum has two kinds of keys, and they are replaced in different ways:
 
 - **Update keys** change the DID document. The user holds them; operators never do. They are replaced through the DID method's own mechanism: a pre-rotated next key for `did:webvh`, or a higher-priority rotation key for `did:plc`. A user SHOULD keep one update key on their own device for routine changes and a **recovery key** offline (a hardware key, or a paper backup in a safe). For `did:webvh` the recovery key is the pre-rotated next key; for `did:plc` it is a higher-priority rotation key.
 - **The content key** (the IPNS key) signs content and points to the RootManifest. Replacing it is a change to the DID document: the user's update key signs a new DID log entry naming a new `ipnsName`.
+
+The user also holds a **list key**, an X25519 key that can decrypt their encrypted follow, block, and mute lists (Chapter 25). It is not a signing key and changes nothing; it SHOULD be kept with the recovery key, so that a user moving away from a hostile operator can take their lists with them.
 
 **Moving to a new operator** is a content key rotation plus a change of `operatorEndpoint`, made by the user:
 
